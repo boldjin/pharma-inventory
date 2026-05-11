@@ -3,7 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1e3a8a">
 <title>의약품 재고관리 시스템</title>
+<!-- IE 미지원 안내 -->
+<script>
+if (!!window.MSInputMethodContext && !!document.documentMode) {
+  document.write('<div style="padding:40px;text-align:center;font-family:sans-serif"><h2>Internet Explorer는 지원되지 않습니다</h2><p>Chrome, Edge, Safari, Whale 등 최신 브라우저를 사용해 주세요.</p></div>');
+  throw new Error('IE not supported');
+}
+</script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
 <style>
@@ -30,7 +38,8 @@
   --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; background: var(--gray-100); color: var(--gray-800); min-height: 100vh; font-size: 14px; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; background: var(--gray-100); color: var(--gray-800); min-height: 100vh; min-height: -webkit-fill-available; font-size: 14px; }
+html { height: -webkit-fill-available; }
 
 /* Header */
 .header { background: var(--primary-dark); color: white; padding: 0 24px; display: flex; align-items: center; height: 56px; gap: 16px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
@@ -639,7 +648,9 @@ select.form-control { cursor: pointer; }
 // ========================================
 const SUPABASE_URL  = 'https://kgtillnfoycozkmfqwum.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtndGlsbG5mb3ljb3prbWZxd3VtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0OTg3MTQsImV4cCI6MjA5NDA3NDcxNH0.OKNmX-QcxMWHGWM4AZ_1Fz-6UvbxPLNGvRItx997wWE';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+  auth: { persistSession: true, storageKey: 'pharma-auth' }
+});
 
 // ========================================
 // IN-MEMORY CACHE
@@ -1559,16 +1570,29 @@ async function deleteProduct(code) {
 // ========================================
 // REALTIME 구독
 // ========================================
+let _reloadTimer = null;
+function scheduleReload() {
+  clearTimeout(_reloadTimer);
+  _reloadTimer = setTimeout(async () => {
+    await loadAllData();
+    refreshCurrentTab();
+    initProductFilters(); initPurchaseFilters(); initSalesFilters(); initRecordFilters();
+  }, 300);
+}
+
 function subscribeRealtime() {
   if (_realtimeCh) sb.removeChannel(_realtimeCh);
-  _realtimeCh = sb.channel('pharma-db')
+  _realtimeCh = sb.channel('pharma-db-' + _userId)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'products',
-        filter: `user_id=eq.${_userId}` },
-      async () => { await loadAllData(); refreshCurrentTab(); initProductFilters(); initPurchaseFilters(); initSalesFilters(); initRecordFilters(); })
+        filter: `user_id=eq.${_userId}` }, scheduleReload)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions',
-        filter: `user_id=eq.${_userId}` },
-      async () => { await loadAllData(); refreshCurrentTab(); initSalesFilters(); initPurchaseFilters(); initRecordFilters(); })
-    .subscribe();
+        filter: `user_id=eq.${_userId}` }, scheduleReload)
+    .subscribe((status, err) => {
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.warn('Realtime 연결 오류, 5초 후 재연결...', err);
+        setTimeout(() => { if (_userId) subscribeRealtime(); }, 5000);
+      }
+    });
 }
 
 // ========================================
