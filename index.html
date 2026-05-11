@@ -699,12 +699,19 @@ function txFromDb(r) {
 // SUPABASE DB 함수
 // ========================================
 async function loadAllData() {
-  const [{ data: prods, error: e1 }, { data: txns, error: e2 }] = await Promise.all([
-    sb.from('products').select('*').order('code'),
-    sb.from('transactions').select('*').order('date', { ascending: false }),
+  const withTimeout = (promise, ms) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('연결 시간 초과')), ms))
   ]);
-  if (e1) console.error('products load error', e1);
-  if (e2) console.error('transactions load error', e2);
+
+  const [{ data: prods, error: e1 }, { data: txns, error: e2 }] = await withTimeout(
+    Promise.all([
+      sb.from('products').select('*').order('code'),
+      sb.from('transactions').select('*').order('date', { ascending: false }),
+    ]), 10000
+  );
+  if (e1) throw new Error('품목 로딩 실패: ' + e1.message);
+  if (e2) throw new Error('거래기록 로딩 실패: ' + e2.message);
   _products     = (prods || []).map(productFromDb);
   _transactions = (txns  || []).map(txFromDb);
 }
