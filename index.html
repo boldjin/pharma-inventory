@@ -1580,18 +1580,27 @@ async function initApp(user) {
   }
 }
 
-// 5초 안에 auth 응답 없으면 로그인 화면으로 fallback
-setTimeout(() => {
-  if (document.getElementById('loading-overlay').style.display !== 'none') {
+// 페이지 로드 시 저장된 세션 확인 → 자동 로그인
+(async () => {
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session?.user) {
+      await initApp(session.user);
+    } else {
+      showLoading(false);
+      showAuth(true);
+    }
+  } catch(e) {
     showLoading(false);
     showAuth(true);
   }
-}, 5000);
+})();
 
+// 로그인/로그아웃 이벤트 처리
 sb.auth.onAuthStateChange(async (event, session) => {
-  if (session?.user) {
+  if (event === 'SIGNED_IN' && session?.user && !_userId) {
     await initApp(session.user);
-  } else {
+  } else if (event === 'SIGNED_OUT') {
     _userId = null;
     _products = [];
     _transactions = [];
