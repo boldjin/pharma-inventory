@@ -1,0 +1,31 @@
+name: 일일 재고 리포트 이메일 발송
+
+on:
+  schedule:
+    - cron: '0 1 * * *'   # 매일 01:00 UTC = 한국시간 10:00 KST
+  workflow_dispatch:        # 수동 테스트용
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 패키지 설치
+        run: npm install @supabase/supabase-js@2.49.4 xlsx nodemailer
+
+      - name: 리포트 생성 및 이메일 발송
+        run: node scripts/send-report.js
+        env:
+          SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY:  ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_USER_ID:      ${{ secrets.SUPABASE_USER_ID }}
+          SMTP_HOST:             ${{ secrets.SMTP_HOST }}
+          SMTP_PORT:             ${{ secrets.SMTP_PORT }}
+          SMTP_USER:             ${{ secrets.SMTP_USER }}
+          SMTP_PASS:             ${{ secrets.SMTP_PASS }}
+          RECIPIENT:             forzaackj@naver.com
