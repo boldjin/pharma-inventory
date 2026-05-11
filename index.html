@@ -1591,12 +1591,8 @@ async function initApp(user) {
   showLoading(true);
   showAuth(false);
 
-  // 5초 후 메시지 변경 (슬립 상태 서버 대기 안내)
-  const wakeTimer = setTimeout(() => setLoadingMsg('서버를 깨우는 중...', '처음 접속 시 최대 30초 소요될 수 있습니다'), 5000);
-
   try {
     await loadAllData();
-    clearTimeout(wakeTimer);
     if (_products.length === 0 && _transactions.length === 0) {
       await insertSeedData();
       await loadAllData();
@@ -1609,7 +1605,6 @@ async function initApp(user) {
     subscribeRealtime();
     showLoading(false);
   } catch(e) {
-    clearTimeout(wakeTimer);
     console.error('initApp error', e);
     showLoadingError('데이터를 불러오지 못했습니다. 네트워크를 확인 후 다시 시도해주세요.');
   }
