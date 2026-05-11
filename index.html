@@ -1548,24 +1548,29 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
 // ========================================
 async function initApp(user) {
   _userId = user.id;
-  document.getElementById('header-user').textContent       = '';
-  document.getElementById('logout-btn').style.display      = 'inline-block';
+  document.getElementById('header-user').textContent  = '';
+  document.getElementById('logout-btn').style.display = 'inline-block';
   showLoading(true);
   showAuth(false);
 
-  await loadAllData();
-  if (_products.length === 0 && _transactions.length === 0) {
-    await insertSeedData();
+  try {
     await loadAllData();
+    if (_products.length === 0 && _transactions.length === 0) {
+      await insertSeedData();
+      await loadAllData();
+    }
+    initPurchaseFilters();
+    initSalesFilters();
+    initRecordFilters();
+    initProductFilters();
+    renderDashboard();
+    subscribeRealtime();
+  } catch(e) {
+    console.error('initApp error', e);
+    alert('데이터 로딩 오류: ' + e.message);
+  } finally {
+    showLoading(false);
   }
-
-  initPurchaseFilters();
-  initSalesFilters();
-  initRecordFilters();
-  initProductFilters();
-  renderDashboard();
-  subscribeRealtime();
-  showLoading(false);
 }
 
 // 5초 안에 auth 응답 없으면 로그인 화면으로 fallback
