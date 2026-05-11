@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>의약품 재고관리 시스템</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
 :root {
   --primary: #1d4ed8;
@@ -186,9 +187,54 @@ select.form-control { cursor: pointer; }
 </head>
 <body>
 
+<!-- ====== 로딩 오버레이 ====== -->
+<div id="loading-overlay" style="display:flex; position:fixed; inset:0; background:rgba(255,255,255,0.95); z-index:9998; align-items:center; justify-content:center; flex-direction:column; gap:14px;">
+  <div style="font-size:36px;">💊</div>
+  <div style="font-size:15px; color:var(--gray-600); font-weight:600;">데이터 로딩 중...</div>
+  <div style="font-size:12px; color:var(--gray-400);">잠시만 기다려주세요</div>
+</div>
+
+<!-- ====== 로그인 오버레이 ====== -->
+<div id="auth-overlay" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.85); z-index:9999; align-items:center; justify-content:center;">
+  <div style="background:white; border-radius:16px; padding:40px; width:90%; max-width:400px; box-shadow:0 25px 60px rgba(0,0,0,0.4);">
+    <div style="text-align:center; margin-bottom:28px;">
+      <div style="font-size:36px; margin-bottom:10px;">💊</div>
+      <div style="font-size:20px; font-weight:700; color:#1e293b;">의약품 재고관리 시스템</div>
+      <div style="font-size:13px; color:#64748b; margin-top:6px;">계속하려면 로그인하세요</div>
+    </div>
+    <div id="auth-error" style="display:none; background:#fee2e2; color:#dc2626; padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:16px;"></div>
+    <div style="display:flex; flex-direction:column; gap:14px;">
+      <div>
+        <label style="font-size:12px; font-weight:600; color:#475569; display:block; margin-bottom:5px;">아이디</label>
+        <input type="text" id="login-email" placeholder="아이디 입력"
+          style="width:100%; height:42px; padding:0 14px; border:1px solid #cbd5e1; border-radius:8px; font-size:14px; outline:none; transition:border-color 0.15s;"
+          onfocus="this.style.borderColor='#1d4ed8'" onblur="this.style.borderColor='#cbd5e1'">
+      </div>
+      <div>
+        <label style="font-size:12px; font-weight:600; color:#475569; display:block; margin-bottom:5px;">비밀번호</label>
+        <input type="password" id="login-password" placeholder="비밀번호 입력"
+          style="width:100%; height:42px; padding:0 14px; border:1px solid #cbd5e1; border-radius:8px; font-size:14px; outline:none; transition:border-color 0.15s;"
+          onfocus="this.style.borderColor='#1d4ed8'" onblur="this.style.borderColor='#cbd5e1'">
+      </div>
+      <button id="login-btn" onclick="doLogin()"
+        style="height:44px; background:#1d4ed8; color:white; border:none; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; margin-top:4px; transition:background 0.15s;"
+        onmouseover="this.style.background='#1e3a8a'" onmouseout="this.style.background='#1d4ed8'">
+        로그인
+      </button>
+    </div>
+  </div>
+</div>
+
 <div class="header">
   <div class="header-logo">💊 의약품 <span>재고관리</span></div>
   <div class="header-subtitle">Pharma Inventory System</div>
+  <div style="margin-left:auto; display:flex; align-items:center; gap:12px;">
+    <span id="header-user" style="font-size:12px; color:#93c5fd;"></span>
+    <button id="logout-btn" onclick="doLogout()"
+      style="display:none; padding:5px 14px; background:rgba(255,255,255,0.15); color:white; border:1px solid rgba(255,255,255,0.3); border-radius:6px; font-size:12px; cursor:pointer; font-weight:500;">
+      로그아웃
+    </button>
+  </div>
 </div>
 
 <nav class="nav">
@@ -585,150 +631,248 @@ select.form-control { cursor: pointer; }
 
 <script>
 // ========================================
-// SEED DATA
+// SUPABASE CONFIG  ← 본인 프로젝트 값으로 교체하세요
 // ========================================
-// ── 데모용 더미 SEED (공개 배포용) ──
+const SUPABASE_URL  = 'https://kgtillnfoycozkmfqwum.supabase.co';
+const SUPABASE_ANON = 'sb_publishable_k_6QzO3wNoGm6SgzZHJZQQ_XbM0oSLf';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// ========================================
+// IN-MEMORY CACHE
+// ========================================
+let _products     = [];
+let _transactions = [];
+let _userId       = null;
+let _realtimeCh   = null;
+
+function getProducts()     { return _products; }
+function getTransactions() { return _transactions; }
+
+// ========================================
+// DB ↔ JS 변환 (snake_case ↔ camelCase)
+// ========================================
+function productToDb(p) {
+  return {
+    code: p.code, name: p.name, spec: p.spec || '', unit: p.unit || '',
+    category: p.category || '', manufacturer: p.manufacturer || '',
+    supplier: p.supplier || '', location: p.location || '',
+    safety_stock: p.safetyStock || 0, max_stock: p.maxStock || 0,
+    expiry_mgmt: p.expiryMgmt || 'N', lot_mgmt: p.lotMgmt || 'N',
+    insurance: p.insurance || '보험', note: p.note || '',
+    user_id: _userId,
+  };
+}
+function productFromDb(r) {
+  return {
+    code: r.code, name: r.name, spec: r.spec, unit: r.unit,
+    category: r.category, manufacturer: r.manufacturer,
+    supplier: r.supplier, location: r.location,
+    safetyStock: r.safety_stock, maxStock: r.max_stock,
+    expiryMgmt: r.expiry_mgmt, lotMgmt: r.lot_mgmt,
+    insurance: r.insurance, note: r.note,
+  };
+}
+function txToDb(t) {
+  const row = {
+    date: t.date, type: t.type,
+    product_code: t.productCode, product_name: t.productName,
+    lot: t.lot || '', expiry: t.expiry || '',
+    qty: t.qty, unit_price: t.unitPrice, amount: t.amount,
+    dept: t.dept || '', manager: t.manager || '',
+    partner: t.partner || '', note: t.note || '',
+    user_id: _userId,
+  };
+  if (t.id) row.id = t.id;
+  return row;
+}
+function txFromDb(r) {
+  return {
+    id: r.id, date: r.date, type: r.type,
+    productCode: r.product_code, productName: r.product_name,
+    lot: r.lot, expiry: r.expiry, qty: r.qty,
+    unitPrice: Number(r.unit_price), amount: Number(r.amount),
+    dept: r.dept, manager: r.manager, partner: r.partner, note: r.note,
+  };
+}
+
+// ========================================
+// SUPABASE DB 함수
+// ========================================
+async function loadAllData() {
+  const [{ data: prods, error: e1 }, { data: txns, error: e2 }] = await Promise.all([
+    sb.from('products').select('*').order('code'),
+    sb.from('transactions').select('*').order('date', { ascending: false }),
+  ]);
+  if (e1) console.error('products load error', e1);
+  if (e2) console.error('transactions load error', e2);
+  _products     = (prods || []).map(productFromDb);
+  _transactions = (txns  || []).map(txFromDb);
+}
+
+async function dbUpsertProduct(prod) {
+  const { error } = await sb.from('products').upsert(productToDb(prod), { onConflict: 'code' });
+  if (error) throw error;
+}
+async function dbDeleteProduct(code) {
+  const { error } = await sb.from('products').delete().eq('code', code).eq('user_id', _userId);
+  if (error) throw error;
+}
+async function dbInsertTransaction(tx) {
+  const row = txToDb(tx);
+  delete row.id;
+  const { error } = await sb.from('transactions').insert(row);
+  if (error) throw error;
+}
+async function dbUpdateTransaction(tx) {
+  const { error } = await sb.from('transactions').update(txToDb(tx)).eq('id', tx.id).eq('user_id', _userId);
+  if (error) throw error;
+}
+async function dbDeleteTransaction(id) {
+  const { error } = await sb.from('transactions').delete().eq('id', id).eq('user_id', _userId);
+  if (error) throw error;
+}
+
+// ========================================
+// SEED DATA (최초 1회 삽입)
+// ========================================
 const SEED_PRODUCTS = [
-  {code:'SKU-001', name:'샘플품목 A', spec:'45*100', unit:'EA',   category:'드레싱',   manufacturer:'㈜샘플메디',  supplier:'㈜샘플유통', location:'본사', safetyStock:10, maxStock:40, expiryMgmt:'N', lotMgmt:'N', insurance:'보험',   note:'데모 데이터'},
-  {code:'SKU-002', name:'샘플품목 B', spec:'60*45',  unit:'EA',   category:'드레싱',   manufacturer:'㈜샘플메디',  supplier:'㈜샘플유통', location:'본사', safetyStock:30, maxStock:60, expiryMgmt:'N', lotMgmt:'N', insurance:'비보험', note:'데모 데이터'},
-  {code:'SKU-003', name:'샘플품목 C', spec:'10*10',  unit:'PACK', category:'지혈제',   manufacturer:'㈜데모케어',  supplier:'㈜데모유통', location:'본사', safetyStock:30, maxStock:60, expiryMgmt:'Y', lotMgmt:'Y', insurance:'보험',   note:'데모 데이터'},
-  {code:'SKU-004', name:'샘플품목 D', spec:'20*10',  unit:'PACK', category:'지혈제',   manufacturer:'㈜데모케어',  supplier:'㈜데모유통', location:'본사', safetyStock:30, maxStock:60, expiryMgmt:'Y', lotMgmt:'Y', insurance:'보험',   note:'데모 데이터'},
-  {code:'SKU-005', name:'샘플품목 E', spec:'40*20',  unit:'PACK', category:'지혈제',   manufacturer:'㈜데모케어',  supplier:'㈜데모유통', location:'본사', safetyStock:5,  maxStock:60, expiryMgmt:'Y', lotMgmt:'Y', insurance:'보험',   note:'데모 데이터'},
+  {code:'SKU-001', name:'샘플품목 A', spec:'45*100', unit:'EA',   category:'드레싱', manufacturer:'㈜샘플메디', supplier:'㈜샘플유통', location:'본사', safetyStock:10, maxStock:40, expiryMgmt:'N', lotMgmt:'N', insurance:'보험',   note:'데모 데이터'},
+  {code:'SKU-002', name:'샘플품목 B', spec:'60*45',  unit:'EA',   category:'드레싱', manufacturer:'㈜샘플메디', supplier:'㈜샘플유통', location:'본사', safetyStock:30, maxStock:60, expiryMgmt:'N', lotMgmt:'N', insurance:'비보험', note:'데모 데이터'},
+  {code:'SKU-003', name:'샘플품목 C', spec:'10*10',  unit:'PACK', category:'지혈제', manufacturer:'㈜데모케어', supplier:'㈜데모유통', location:'본사', safetyStock:30, maxStock:60, expiryMgmt:'Y', lotMgmt:'Y', insurance:'보험',   note:'데모 데이터'},
+  {code:'SKU-004', name:'샘플품목 D', spec:'20*10',  unit:'PACK', category:'지혈제', manufacturer:'㈜데모케어', supplier:'㈜데모유통', location:'본사', safetyStock:30, maxStock:60, expiryMgmt:'Y', lotMgmt:'Y', insurance:'보험',   note:'데모 데이터'},
+  {code:'SKU-005', name:'샘플품목 E', spec:'40*20',  unit:'PACK', category:'지혈제', manufacturer:'㈜데모케어', supplier:'㈜데모유통', location:'본사', safetyStock:5,  maxStock:60, expiryMgmt:'Y', lotMgmt:'Y', insurance:'보험',   note:'데모 데이터'},
 ];
-
-// ── 데모 거래내역 (Jan~May 2026, 매입+매출 혼합) ──
 const SEED_TRANSACTIONS = [
-  // 1월
-  {id:1,  date:'2026-01-05', type:'매입', productCode:'SKU-001', productName:'샘플품목 A', lot:'',          expiry:'',           qty:20,  unitPrice:70000, amount:1400000, dept:'영업관리부', manager:'홍길동', partner:'㈜샘플유통', note:''},
-  {id:2,  date:'2026-01-05', type:'매입', productCode:'SKU-002', productName:'샘플품목 B', lot:'',          expiry:'',           qty:100, unitPrice:14300, amount:1430000, dept:'영업관리부', manager:'홍길동', partner:'㈜샘플유통', note:''},
-  {id:3,  date:'2026-01-05', type:'매입', productCode:'SKU-003', productName:'샘플품목 C', lot:'L2601-001', expiry:'2030-01-31', qty:50,  unitPrice:9900,  amount:495000,  dept:'영업관리부', manager:'홍길동', partner:'㈜데모유통', note:''},
-  {id:4,  date:'2026-01-05', type:'매입', productCode:'SKU-004', productName:'샘플품목 D', lot:'L2601-011', expiry:'2030-01-31', qty:30,  unitPrice:10500, amount:315000,  dept:'영업관리부', manager:'홍길동', partner:'㈜데모유통', note:''},
-  {id:5,  date:'2026-01-05', type:'매입', productCode:'SKU-005', productName:'샘플품목 E', lot:'L2601-021', expiry:'2030-01-31', qty:20,  unitPrice:11000, amount:220000,  dept:'영업관리부', manager:'홍길동', partner:'㈜데모유통', note:''},
-  {id:6,  date:'2026-01-10', type:'매출', productCode:'SKU-001', productName:'샘플품목 A', lot:'',          expiry:'',           qty:5,   unitPrice:85000, amount:425000,  dept:'영업관리부', manager:'홍길동', partner:'A병원', note:''},
-  {id:7,  date:'2026-01-15', type:'매출', productCode:'SKU-002', productName:'샘플품목 B', lot:'',          expiry:'',           qty:20,  unitPrice:18000, amount:360000,  dept:'영업관리부', manager:'홍길동', partner:'A병원', note:''},
-  {id:8,  date:'2026-01-20', type:'매출', productCode:'SKU-003', productName:'샘플품목 C', lot:'L2601-001', expiry:'2030-01-31', qty:10,  unitPrice:15000, amount:150000,  dept:'영업관리부', manager:'홍길동', partner:'B병원', note:''},
-  {id:9,  date:'2026-01-22', type:'매출', productCode:'SKU-001', productName:'샘플품목 A', lot:'',          expiry:'',           qty:3,   unitPrice:82000, amount:246000,  dept:'영업관리부', manager:'홍길동', partner:'B병원', note:''},
-  {id:10, date:'2026-01-25', type:'매출', productCode:'SKU-004', productName:'샘플품목 D', lot:'L2601-011', expiry:'2030-01-31', qty:5,   unitPrice:16000, amount:80000,   dept:'영업관리부', manager:'홍길동', partner:'C병원', note:''},
-  // 2월
-  {id:11, date:'2026-02-03', type:'매입', productCode:'SKU-001', productName:'샘플품목 A', lot:'',          expiry:'',           qty:15,  unitPrice:70000, amount:1050000, dept:'영업관리부', manager:'홍길동', partner:'㈜샘플유통', note:''},
-  {id:12, date:'2026-02-03', type:'매입', productCode:'SKU-002', productName:'샘플품목 B', lot:'',          expiry:'',           qty:80,  unitPrice:14300, amount:1144000, dept:'영업관리부', manager:'홍길동', partner:'㈜샘플유통', note:''},
-  {id:13, date:'2026-02-07', type:'매출', productCode:'SKU-001', productName:'샘플품목 A', lot:'',          expiry:'',           qty:4,   unitPrice:85000, amount:340000,  dept:'영업관리부', manager:'홍길동', partner:'A병원', note:''},
-  {id:14, date:'2026-02-12', type:'매출', productCode:'SKU-002', productName:'샘플품목 B', lot:'',          expiry:'',           qty:30,  unitPrice:18000, amount:540000,  dept:'영업관리부', manager:'홍길동', partner:'A병원', note:''},
-  {id:15, date:'2026-02-14', type:'매출', productCode:'SKU-001', productName:'샘플품목 A', lot:'',          expiry:'',           qty:5,   unitPrice:82000, amount:410000,  dept:'영업관리부', manager:'홍길동', partner:'B병원', note:''},
-  {id:16, date:'2026-02-20', type:'매출', productCode:'SKU-003', productName:'샘플품목 C', lot:'L2601-001', expiry:'2030-01-31', qty:15,  unitPrice:15000, amount:225000,  dept:'영업관리부', manager:'홍길동', partner:'D병원', note:''},
-  {id:17, date:'2026-02-25', type:'매출', productCode:'SKU-005', productName:'샘플품목 E', lot:'L2601-021', expiry:'2030-01-31', qty:8,   unitPrice:17000, amount:136000,  dept:'영업관리부', manager:'홍길동', partner:'C병원', note:''},
-  // 3월
-  {id:18, date:'2026-03-04', type:'매입', productCode:'SKU-001', productName:'샘플품목 A', lot:'',          expiry:'',           qty:20,  unitPrice:70000, amount:1400000, dept:'영업관리부', manager:'홍길동', partner:'㈜샘플유통', note:''},
-  {id:19, date:'2026-03-04', type:'매입', productCode:'SKU-003', productName:'샘플품목 C', lot:'L2603-050', expiry:'2030-03-15', qty:60,  unitPrice:9900,  amount:594000,  dept:'영업관리부', manager:'홍길동', partner:'㈜데모유통', note:''},
-  {id:20, date:'2026-03-10', type:'매출', productCode:'SKU-001', productName:'샘플품목 A', lot:'',          expiry:'',           qty:6,   unitPrice:85000, amount:510000,  dept:'영업관리부', manager:'홍길동', partner:'A병원', note:''},
-  {id:21, date:'2026-03-12', type:'매출', productCode:'SKU-002', productName:'샘플품목 B', lot:'',          expiry:'',           qty:25,  unitPrice:17500, amount:437500,  dept:'영업관리부', manager:'홍길동', partner:'B병원', note:''},
-  {id:22, date:'2026-03-15', type:'매출', productCode:'SKU-003', productName:'샘플품목 C', lot:'L2603-050', expiry:'2030-03-15', qty:20,  unitPrice:15000, amount:300000,  dept:'영업관리부', manager:'홍길동', partner:'D병원', note:''},
-  {id:23, date:'2026-03-20', type:'매출', productCode:'SKU-001', productName:'샘플품목 A', lot:'',          expiry:'',           qty:4,   unitPrice:80000, amount:320000,  dept:'영업관리부', manager:'홍길동', partner:'C병원', note:''},
-  {id:24, date:'2026-03-25', type:'매출', productCode:'SKU-004', productName:'샘플품목 D', lot:'L2601-011', expiry:'2030-01-31', qty:8,   unitPrice:16000, amount:128000,  dept:'영업관리부', manager:'홍길동', partner:'E병원', note:''},
-  {id:25, date:'2026-03-28', type:'매출', productCode:'SKU-002', productName:'샘플품목 B', lot:'',          expiry:'',           qty:20,  unitPrice:20000, amount:400000,  dept:'영업관리부', manager:'홍길동', partner:'E병원', note:''},
-  // 4월
-  {id:26, date:'2026-04-05', type:'매출', productCode:'SKU-001', productName:'샘플품목 A', lot:'',          expiry:'',           qty:4,   unitPrice:85000, amount:340000,  dept:'영업관리부', manager:'홍길동', partner:'A병원', note:''},
-  {id:27, date:'2026-04-08', type:'매출', productCode:'SKU-003', productName:'샘플품목 C', lot:'L2603-050', expiry:'2030-03-15', qty:15,  unitPrice:15000, amount:225000,  dept:'영업관리부', manager:'홍길동', partner:'B병원', note:''},
-  {id:28, date:'2026-04-12', type:'매출', productCode:'SKU-002', productName:'샘플품목 B', lot:'',          expiry:'',           qty:18,  unitPrice:16800, amount:302400,  dept:'영업관리부', manager:'홍길동', partner:'C병원', note:''},
-  {id:29, date:'2026-04-15', type:'매출', productCode:'SKU-005', productName:'샘플품목 E', lot:'L2601-021', expiry:'2030-01-31', qty:5,   unitPrice:17000, amount:85000,   dept:'영업관리부', manager:'홍길동', partner:'D병원', note:''},
-  {id:30, date:'2026-04-20', type:'매출', productCode:'SKU-001', productName:'샘플품목 A', lot:'',          expiry:'',           qty:6,   unitPrice:90000, amount:540000,  dept:'영업관리부', manager:'홍길동', partner:'E병원', note:''},
-  {id:31, date:'2026-04-23', type:'매입', productCode:'SKU-002', productName:'샘플품목 B', lot:'',          expiry:'',           qty:50,  unitPrice:14300, amount:715000,  dept:'영업관리부', manager:'홍길동', partner:'㈜샘플유통', note:''},
-  {id:32, date:'2026-04-23', type:'매입', productCode:'SKU-003', productName:'샘플품목 C', lot:'L2604-101', expiry:'2030-11-25', qty:40,  unitPrice:9900,  amount:396000,  dept:'영업관리부', manager:'홍길동', partner:'㈜데모유통', note:''},
-  {id:33, date:'2026-04-23', type:'매입', productCode:'SKU-005', productName:'샘플품목 E', lot:'L2604-425', expiry:'2030-06-26', qty:10,  unitPrice:11000, amount:110000,  dept:'영업관리부', manager:'홍길동', partner:'㈜데모유통', note:''},
-  {id:34, date:'2026-04-25', type:'매출', productCode:'SKU-004', productName:'샘플품목 D', lot:'L2601-011', expiry:'2030-01-31', qty:6,   unitPrice:16500, amount:99000,   dept:'영업관리부', manager:'홍길동', partner:'D병원', note:''},
-  {id:35, date:'2026-04-30', type:'매입', productCode:'SKU-001', productName:'샘플품목 A', lot:'',          expiry:'',           qty:5,   unitPrice:70000, amount:350000,  dept:'영업관리부', manager:'홍길동', partner:'㈜샘플유통', note:''},
-  // 5월
-  {id:36, date:'2026-05-02', type:'매입', productCode:'SKU-002', productName:'샘플품목 B', lot:'',          expiry:'',           qty:60,  unitPrice:14300, amount:858000,  dept:'영업관리부', manager:'홍길동', partner:'㈜샘플유통', note:''},
-  {id:37, date:'2026-05-05', type:'매출', productCode:'SKU-002', productName:'샘플품목 B', lot:'',          expiry:'',           qty:20,  unitPrice:18000, amount:360000,  dept:'영업관리부', manager:'홍길동', partner:'A병원', note:''},
-  {id:38, date:'2026-05-07', type:'매출', productCode:'SKU-001', productName:'샘플품목 A', lot:'',          expiry:'',           qty:3,   unitPrice:82000, amount:246000,  dept:'영업관리부', manager:'홍길동', partner:'B병원', note:''},
-  {id:39, date:'2026-05-09', type:'매출', productCode:'SKU-003', productName:'샘플품목 C', lot:'L2604-101', expiry:'2030-11-25', qty:12,  unitPrice:15000, amount:180000,  dept:'영업관리부', manager:'홍길동', partner:'D병원', note:''},
+  {date:'2026-01-05',type:'매입',productCode:'SKU-001',productName:'샘플품목 A',lot:'',          expiry:'',           qty:20, unitPrice:70000, amount:1400000,dept:'영업관리부',manager:'홍길동',partner:'㈜샘플유통',note:''},
+  {date:'2026-01-05',type:'매입',productCode:'SKU-002',productName:'샘플품목 B',lot:'',          expiry:'',           qty:100,unitPrice:14300, amount:1430000,dept:'영업관리부',manager:'홍길동',partner:'㈜샘플유통',note:''},
+  {date:'2026-01-05',type:'매입',productCode:'SKU-003',productName:'샘플품목 C',lot:'L2601-001',expiry:'2030-01-31',qty:50, unitPrice:9900,  amount:495000, dept:'영업관리부',manager:'홍길동',partner:'㈜데모유통',note:''},
+  {date:'2026-01-05',type:'매입',productCode:'SKU-004',productName:'샘플품목 D',lot:'L2601-011',expiry:'2030-01-31',qty:30, unitPrice:10500, amount:315000, dept:'영업관리부',manager:'홍길동',partner:'㈜데모유통',note:''},
+  {date:'2026-01-05',type:'매입',productCode:'SKU-005',productName:'샘플품목 E',lot:'L2601-021',expiry:'2030-01-31',qty:20, unitPrice:11000, amount:220000, dept:'영업관리부',manager:'홍길동',partner:'㈜데모유통',note:''},
+  {date:'2026-01-10',type:'매출',productCode:'SKU-001',productName:'샘플품목 A',lot:'',          expiry:'',           qty:5,  unitPrice:85000, amount:425000, dept:'영업관리부',manager:'홍길동',partner:'A병원',note:''},
+  {date:'2026-01-15',type:'매출',productCode:'SKU-002',productName:'샘플품목 B',lot:'',          expiry:'',           qty:20, unitPrice:18000, amount:360000, dept:'영업관리부',manager:'홍길동',partner:'A병원',note:''},
+  {date:'2026-01-20',type:'매출',productCode:'SKU-003',productName:'샘플품목 C',lot:'L2601-001',expiry:'2030-01-31',qty:10, unitPrice:15000, amount:150000, dept:'영업관리부',manager:'홍길동',partner:'B병원',note:''},
+  {date:'2026-01-22',type:'매출',productCode:'SKU-001',productName:'샘플품목 A',lot:'',          expiry:'',           qty:3,  unitPrice:82000, amount:246000, dept:'영업관리부',manager:'홍길동',partner:'B병원',note:''},
+  {date:'2026-01-25',type:'매출',productCode:'SKU-004',productName:'샘플품목 D',lot:'L2601-011',expiry:'2030-01-31',qty:5,  unitPrice:16000, amount:80000,  dept:'영업관리부',manager:'홍길동',partner:'C병원',note:''},
+  {date:'2026-02-03',type:'매입',productCode:'SKU-001',productName:'샘플품목 A',lot:'',          expiry:'',           qty:15, unitPrice:70000, amount:1050000,dept:'영업관리부',manager:'홍길동',partner:'㈜샘플유통',note:''},
+  {date:'2026-02-03',type:'매입',productCode:'SKU-002',productName:'샘플품목 B',lot:'',          expiry:'',           qty:80, unitPrice:14300, amount:1144000,dept:'영업관리부',manager:'홍길동',partner:'㈜샘플유통',note:''},
+  {date:'2026-02-07',type:'매출',productCode:'SKU-001',productName:'샘플품목 A',lot:'',          expiry:'',           qty:4,  unitPrice:85000, amount:340000, dept:'영업관리부',manager:'홍길동',partner:'A병원',note:''},
+  {date:'2026-02-12',type:'매출',productCode:'SKU-002',productName:'샘플품목 B',lot:'',          expiry:'',           qty:30, unitPrice:18000, amount:540000, dept:'영업관리부',manager:'홍길동',partner:'A병원',note:''},
+  {date:'2026-02-14',type:'매출',productCode:'SKU-001',productName:'샘플품목 A',lot:'',          expiry:'',           qty:5,  unitPrice:82000, amount:410000, dept:'영업관리부',manager:'홍길동',partner:'B병원',note:''},
+  {date:'2026-02-20',type:'매출',productCode:'SKU-003',productName:'샘플품목 C',lot:'L2601-001',expiry:'2030-01-31',qty:15, unitPrice:15000, amount:225000, dept:'영업관리부',manager:'홍길동',partner:'D병원',note:''},
+  {date:'2026-02-25',type:'매출',productCode:'SKU-005',productName:'샘플품목 E',lot:'L2601-021',expiry:'2030-01-31',qty:8,  unitPrice:17000, amount:136000, dept:'영업관리부',manager:'홍길동',partner:'C병원',note:''},
+  {date:'2026-03-04',type:'매입',productCode:'SKU-001',productName:'샘플품목 A',lot:'',          expiry:'',           qty:20, unitPrice:70000, amount:1400000,dept:'영업관리부',manager:'홍길동',partner:'㈜샘플유통',note:''},
+  {date:'2026-03-04',type:'매입',productCode:'SKU-003',productName:'샘플품목 C',lot:'L2603-050',expiry:'2030-03-15',qty:60, unitPrice:9900,  amount:594000, dept:'영업관리부',manager:'홍길동',partner:'㈜데모유통',note:''},
+  {date:'2026-03-10',type:'매출',productCode:'SKU-001',productName:'샘플품목 A',lot:'',          expiry:'',           qty:6,  unitPrice:85000, amount:510000, dept:'영업관리부',manager:'홍길동',partner:'A병원',note:''},
+  {date:'2026-03-12',type:'매출',productCode:'SKU-002',productName:'샘플품목 B',lot:'',          expiry:'',           qty:25, unitPrice:17500, amount:437500, dept:'영업관리부',manager:'홍길동',partner:'B병원',note:''},
+  {date:'2026-03-15',type:'매출',productCode:'SKU-003',productName:'샘플품목 C',lot:'L2603-050',expiry:'2030-03-15',qty:20, unitPrice:15000, amount:300000, dept:'영업관리부',manager:'홍길동',partner:'D병원',note:''},
+  {date:'2026-03-20',type:'매출',productCode:'SKU-001',productName:'샘플품목 A',lot:'',          expiry:'',           qty:4,  unitPrice:80000, amount:320000, dept:'영업관리부',manager:'홍길동',partner:'C병원',note:''},
+  {date:'2026-03-25',type:'매출',productCode:'SKU-004',productName:'샘플품목 D',lot:'L2601-011',expiry:'2030-01-31',qty:8,  unitPrice:16000, amount:128000, dept:'영업관리부',manager:'홍길동',partner:'E병원',note:''},
+  {date:'2026-03-28',type:'매출',productCode:'SKU-002',productName:'샘플품목 B',lot:'',          expiry:'',           qty:20, unitPrice:20000, amount:400000, dept:'영업관리부',manager:'홍길동',partner:'E병원',note:''},
+  {date:'2026-04-05',type:'매출',productCode:'SKU-001',productName:'샘플품목 A',lot:'',          expiry:'',           qty:4,  unitPrice:85000, amount:340000, dept:'영업관리부',manager:'홍길동',partner:'A병원',note:''},
+  {date:'2026-04-08',type:'매출',productCode:'SKU-003',productName:'샘플품목 C',lot:'L2603-050',expiry:'2030-03-15',qty:15, unitPrice:15000, amount:225000, dept:'영업관리부',manager:'홍길동',partner:'B병원',note:''},
+  {date:'2026-04-12',type:'매출',productCode:'SKU-002',productName:'샘플품목 B',lot:'',          expiry:'',           qty:18, unitPrice:16800, amount:302400, dept:'영업관리부',manager:'홍길동',partner:'C병원',note:''},
+  {date:'2026-04-15',type:'매출',productCode:'SKU-005',productName:'샘플품목 E',lot:'L2601-021',expiry:'2030-01-31',qty:5,  unitPrice:17000, amount:85000,  dept:'영업관리부',manager:'홍길동',partner:'D병원',note:''},
+  {date:'2026-04-20',type:'매출',productCode:'SKU-001',productName:'샘플품목 A',lot:'',          expiry:'',           qty:6,  unitPrice:90000, amount:540000, dept:'영업관리부',manager:'홍길동',partner:'E병원',note:''},
+  {date:'2026-04-23',type:'매입',productCode:'SKU-002',productName:'샘플품목 B',lot:'',          expiry:'',           qty:50, unitPrice:14300, amount:715000, dept:'영업관리부',manager:'홍길동',partner:'㈜샘플유통',note:''},
+  {date:'2026-04-23',type:'매입',productCode:'SKU-003',productName:'샘플품목 C',lot:'L2604-101',expiry:'2030-11-25',qty:40, unitPrice:9900,  amount:396000, dept:'영업관리부',manager:'홍길동',partner:'㈜데모유통',note:''},
+  {date:'2026-04-23',type:'매입',productCode:'SKU-005',productName:'샘플품목 E',lot:'L2604-425',expiry:'2030-06-26',qty:10, unitPrice:11000, amount:110000, dept:'영업관리부',manager:'홍길동',partner:'㈜데모유통',note:''},
+  {date:'2026-04-25',type:'매출',productCode:'SKU-004',productName:'샘플품목 D',lot:'L2601-011',expiry:'2030-01-31',qty:6,  unitPrice:16500, amount:99000,  dept:'영업관리부',manager:'홍길동',partner:'D병원',note:''},
+  {date:'2026-04-30',type:'매입',productCode:'SKU-001',productName:'샘플품목 A',lot:'',          expiry:'',           qty:5,  unitPrice:70000, amount:350000, dept:'영업관리부',manager:'홍길동',partner:'㈜샘플유통',note:''},
+  {date:'2026-05-02',type:'매입',productCode:'SKU-002',productName:'샘플품목 B',lot:'',          expiry:'',           qty:60, unitPrice:14300, amount:858000, dept:'영업관리부',manager:'홍길동',partner:'㈜샘플유통',note:''},
+  {date:'2026-05-05',type:'매출',productCode:'SKU-002',productName:'샘플품목 B',lot:'',          expiry:'',           qty:20, unitPrice:18000, amount:360000, dept:'영업관리부',manager:'홍길동',partner:'A병원',note:''},
+  {date:'2026-05-07',type:'매출',productCode:'SKU-001',productName:'샘플품목 A',lot:'',          expiry:'',           qty:3,  unitPrice:82000, amount:246000, dept:'영업관리부',manager:'홍길동',partner:'B병원',note:''},
+  {date:'2026-05-09',type:'매출',productCode:'SKU-003',productName:'샘플품목 C',lot:'L2604-101',expiry:'2030-11-25',qty:12, unitPrice:15000, amount:180000, dept:'영업관리부',manager:'홍길동',partner:'D병원',note:''},
 ];
 
-// ========================================
-// DATA STORE
-// ========================================
-const PROD_KEY = 'pharma_products';
-const TX_KEY = 'pharma_transactions';
-const VER_KEY = 'pharma_seed_version';
-const SEED_VERSION = 'public-demo-v1';
-
-function getProducts() {
-  const d = localStorage.getItem(PROD_KEY);
-  return d ? JSON.parse(d) : [];
+async function insertSeedData() {
+  const { error: e1 } = await sb.from('products').insert(SEED_PRODUCTS.map(productToDb));
+  if (e1) { console.error('seed products error', e1); return; }
+  const txRows = SEED_TRANSACTIONS.map(t => { const r = txToDb(t); delete r.id; return r; });
+  const { error: e2 } = await sb.from('transactions').insert(txRows);
+  if (e2) console.error('seed transactions error', e2);
 }
-function saveProducts(data) { localStorage.setItem(PROD_KEY, JSON.stringify(data)); }
-function getTransactions() {
-  const d = localStorage.getItem(TX_KEY);
-  return d ? JSON.parse(d) : [];
-}
-function saveTransactions(data) { localStorage.setItem(TX_KEY, JSON.stringify(data)); }
 
-function initData() {
-  const currentVer = localStorage.getItem(VER_KEY);
-  if (currentVer !== SEED_VERSION) {
-    // SEED 버전이 바뀌면 강제로 엑셀 동기 데이터로 초기화
-    saveProducts(SEED_PRODUCTS);
-    saveTransactions(SEED_TRANSACTIONS);
-    localStorage.setItem(VER_KEY, SEED_VERSION);
+// ========================================
+// AUTH UI
+// ========================================
+function showLoading(show) {
+  document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none';
+}
+function showAuth(show) {
+  document.getElementById('auth-overlay').style.display = show ? 'flex' : 'none';
+}
+function setAuthError(msg) {
+  const el = document.getElementById('auth-error');
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+
+// ← 본인 Supabase 계정 이메일과 비밀번호로 교체하세요
+const OWNER_EMAIL = 'forzaackj@naver.com';
+const OWNER_PW    = '1q2w3e4r';
+
+async function doLogin() {
+  const id = document.getElementById('login-email').value.trim();
+  const pw = document.getElementById('login-password').value;
+  if (!id || !pw) { setAuthError('아이디와 비밀번호를 입력하세요.'); return; }
+
+  if (id !== 'ko' || pw !== '7777') {
+    setAuthError('아이디 또는 비밀번호가 올바르지 않습니다.');
     return;
   }
-  if (!localStorage.getItem(PROD_KEY)) saveProducts(SEED_PRODUCTS);
-  if (!localStorage.getItem(TX_KEY)) saveTransactions(SEED_TRANSACTIONS);
+
+  const btn = document.getElementById('login-btn');
+  btn.disabled = true; btn.textContent = '로그인 중...';
+  setAuthError('');
+  const { error } = await sb.auth.signInWithPassword({ email: OWNER_EMAIL, password: OWNER_PW });
+  btn.disabled = false; btn.textContent = '로그인';
+  if (error) {
+    setAuthError('로그인에 실패했습니다. 설정을 확인해주세요.');
+  }
 }
 
-function getNextId() {
-  const txns = getTransactions();
-  return txns.length > 0 ? Math.max(...txns.map(t => t.id)) + 1 : 1;
+async function doLogout() {
+  if (!confirm('로그아웃 하시겠습니까?')) return;
+  await sb.auth.signOut();
 }
+
+document.getElementById('login-password').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
 
 // ========================================
 // COMPUTED HELPERS
 // ========================================
 function calcStock(productCode) {
-  const txns = getTransactions().filter(t => t.productCode === productCode);
   let stock = 0;
-  txns.forEach(t => {
-    if (t.type === '매입' || t.type === '반품') stock += t.qty;
+  getTransactions().filter(t => t.productCode === productCode).forEach(t => {
+    if      (t.type === '매입' || t.type === '반품') stock += t.qty;
     else if (t.type === '매출' || t.type === '폐기') stock -= t.qty;
     else if (t.type === '조정') stock += t.qty;
   });
   return Math.max(0, stock);
 }
-
 function calcAvgBuyPrice(productCode) {
   const txns = getTransactions().filter(t => t.productCode === productCode && t.type === '매입');
   if (!txns.length) return 0;
-  const total = txns.reduce((s, t) => s + t.unitPrice, 0);
-  return Math.round(total / txns.length);
+  return Math.round(txns.reduce((s, t) => s + t.unitPrice, 0) / txns.length);
 }
-
-function getStockStatus(current, safetyStock, maxStock) {
-  if (current <= 0) return 'danger';
-  if (current < safetyStock) return 'danger';
+function getStockStatus(current, safetyStock) {
+  if (current <= 0 || current < safetyStock) return 'danger';
   if (current < safetyStock * 1.5) return 'warn';
   return 'ok';
 }
-
 function getStatusLabel(status) {
   if (status === 'danger') return '<span class="badge badge-red">⚠ 부족</span>';
-  if (status === 'warn') return '<span class="badge badge-orange">◎ 주의</span>';
+  if (status === 'warn')   return '<span class="badge badge-orange">◎ 주의</span>';
   return '<span class="badge badge-green">● 정상</span>';
 }
-
 function fmtNum(n) { return Number(n).toLocaleString('ko-KR'); }
 function fmtWon(n) { return fmtNum(n) + '원'; }
-
 function getMonths() {
-  const txns = getTransactions();
-  const months = [...new Set(txns.map(t => t.date.substring(0, 7)))].sort();
-  return months;
+  return [...new Set(getTransactions().map(t => t.date.substring(0, 7)))].sort();
 }
-
-function getLastNMonths(n) {
-  const all = getMonths();
-  return all.slice(-n);
-}
-
+function getLastNMonths(n) { return getMonths().slice(-n); }
 function monthLabel(m) {
   const [y, mo] = m.split('-');
   return `${y}년 ${parseInt(mo)}월`;
@@ -741,9 +885,7 @@ const charts = {};
 function destroyChart(key) {
   if (charts[key]) { charts[key].destroy(); delete charts[key]; }
 }
-
 const COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#84cc16','#f97316'];
-const COLORS_ALPHA = c => c + '40';
 
 // ========================================
 // NAV TAB
@@ -753,18 +895,30 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
     document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     tab.classList.add('active');
-    const id = 'tab-' + tab.dataset.tab;
-    document.getElementById(id).classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
     switch(tab.dataset.tab) {
-      case 'dashboard': renderDashboard(); break;
-      case 'stock': renderStock(); break;
-      case 'purchase': renderPurchase(); break;
-      case 'sales': renderSales(); break;
-      case 'records': renderRecords(); break;
-      case 'products': renderProductsPage(); break;
+      case 'dashboard': renderDashboard();      break;
+      case 'stock':     renderStock();          break;
+      case 'purchase':  renderPurchase();       break;
+      case 'sales':     renderSales();          break;
+      case 'records':   renderRecords();        break;
+      case 'products':  renderProductsPage();   break;
     }
   });
 });
+
+function refreshCurrentTab() {
+  const active = document.querySelector('.nav-tab.active');
+  if (!active) return;
+  switch(active.dataset.tab) {
+    case 'dashboard': renderDashboard();    break;
+    case 'stock':     renderStock();        break;
+    case 'purchase':  renderPurchase();     break;
+    case 'sales':     renderSales();        break;
+    case 'records':   renderRecords();      break;
+    case 'products':  renderProductsPage(); break;
+  }
+}
 
 // ========================================
 // DASHBOARD
@@ -773,23 +927,17 @@ function renderDashboard() {
   const txns = getTransactions();
   const products = getProducts();
 
-  // 기준월: 사용자가 선택한 월. 미선택 시 데이터의 최신 월 사용 (시스템 날짜 의존 X)
   const allMonths = getMonths();
   const selectedMonth = window._dashMonth || (allMonths.length ? allMonths[allMonths.length-1] : '');
   window._dashMonth = selectedMonth;
 
   const monthPurchase = txns.filter(t => t.type === '매입' && t.date.startsWith(selectedMonth));
-  const monthSales = txns.filter(t => t.type === '매출' && t.date.startsWith(selectedMonth));
+  const monthSales    = txns.filter(t => t.type === '매출' && t.date.startsWith(selectedMonth));
   const purAmt = monthPurchase.reduce((s,t)=>s+t.amount,0);
   const salAmt = monthSales.reduce((s,t)=>s+t.amount,0);
   const monthLabelText = selectedMonth ? monthLabel(selectedMonth) : '데이터 없음';
+  const lowStock = products.filter(p => calcStock(p.code) < p.safetyStock);
 
-  const lowStock = products.filter(p => {
-    const curr = calcStock(p.code);
-    return curr < p.safetyStock;
-  });
-
-  // KPI
   const monthOptions = allMonths.map(m => `<option value="${m}" ${m===selectedMonth?'selected':''}>${monthLabel(m)}</option>`).join('');
   document.getElementById('kpi-grid').innerHTML = `
     <div class="kpi-card">
@@ -814,28 +962,24 @@ function renderDashboard() {
     </div>
   `;
 
-  // 기준월 선택 UI
   const monthSelector = document.getElementById('dash-month-selector');
   if (monthSelector) {
     monthSelector.innerHTML = `<label style="font-size:12px;color:var(--gray-500);margin-right:8px;font-weight:600">기준월:</label>
       <select id="dash-month-select" style="height:30px;padding:0 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:13px;background:white;cursor:pointer">${monthOptions}</select>`;
     document.getElementById('dash-month-select').addEventListener('change', e => {
-      window._dashMonth = e.target.value;
-      renderDashboard();
+      window._dashMonth = e.target.value; renderDashboard();
     });
   }
 
-  // 월별 트렌드 차트 (최근 5개월)
   const months = getLastNMonths(5);
   const purByMonth = months.map(m => txns.filter(t=>t.type==='매입'&&t.date.startsWith(m)).reduce((s,t)=>s+t.amount,0));
   const salByMonth = months.map(m => txns.filter(t=>t.type==='매출'&&t.date.startsWith(m)).reduce((s,t)=>s+t.amount,0));
 
   destroyChart('trend');
-  const ctx1 = document.getElementById('chart-trend').getContext('2d');
-  charts['trend'] = new Chart(ctx1, {
+  charts['trend'] = new Chart(document.getElementById('chart-trend').getContext('2d'), {
     type: 'line',
     data: {
-      labels: months.map(m => { const [y,mo]=m.split('-'); return `${parseInt(mo)}월`; }),
+      labels: months.map(m => { const [,mo]=m.split('-'); return `${parseInt(mo)}월`; }),
       datasets: [
         { label: '매입', data: purByMonth, borderColor: '#f59e0b', backgroundColor: '#fef3c7', tension: 0.3, fill: true, pointRadius: 4 },
         { label: '매출', data: salByMonth, borderColor: '#10b981', backgroundColor: '#dcfce7', tension: 0.3, fill: true, pointRadius: 4 },
@@ -844,12 +988,10 @@ function renderDashboard() {
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { ticks: { callback: v => fmtNum(v) } } } }
   });
 
-  // 품목별 재고 차트
-  const stockData = products.map(p => calcStock(p.code));
+  const stockData  = products.map(p => calcStock(p.code));
   const safetyData = products.map(p => p.safetyStock);
   destroyChart('stock');
-  const ctx2 = document.getElementById('chart-stock').getContext('2d');
-  charts['stock'] = new Chart(ctx2, {
+  charts['stock'] = new Chart(document.getElementById('chart-stock').getContext('2d'), {
     type: 'bar',
     data: {
       labels: products.map(p => p.name),
@@ -861,34 +1003,28 @@ function renderDashboard() {
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
   });
 
-  // 재고 알림
-  const allProds = products.map(p => ({ ...p, curr: calcStock(p.code), status: getStockStatus(calcStock(p.code), p.safetyStock, p.maxStock) }));
-  const alerts = allProds.filter(p => p.status !== 'ok');
-  const alertEl = document.getElementById('stock-alerts');
-  if (alerts.length === 0) {
-    alertEl.innerHTML = '<div style="color:var(--success);font-weight:600;padding:8px">✅ 모든 품목의 재고가 안전재고 이상입니다.</div>';
-  } else {
-    alertEl.innerHTML = alerts.map(p => `
-      <div class="alert-item ${p.status === 'warn' ? 'warn' : ''}">
-        <div class="alert-name">${p.name}</div>
-        <div class="alert-info">현재 ${p.curr}${p.unit} / 안전재고 ${p.safetyStock}${p.unit}</div>
-      </div>
-    `).join('');
-  }
+  const allProds = products.map(p => ({ ...p, curr: calcStock(p.code), status: getStockStatus(calcStock(p.code), p.safetyStock) }));
+  const alerts   = allProds.filter(p => p.status !== 'ok');
+  const alertEl  = document.getElementById('stock-alerts');
+  alertEl.innerHTML = alerts.length === 0
+    ? '<div style="color:var(--success);font-weight:600;padding:8px">✅ 모든 품목의 재고가 안전재고 이상입니다.</div>'
+    : alerts.map(p => `
+        <div class="alert-item ${p.status === 'warn' ? 'warn' : ''}">
+          <div class="alert-name">${p.name}</div>
+          <div class="alert-info">현재 ${p.curr}${p.unit} / 안전재고 ${p.safetyStock}${p.unit}</div>
+        </div>`).join('');
 
-  // 최근 거래
   const recent = [...txns].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,10);
   document.getElementById('recent-tbody').innerHTML = recent.map(t => `
     <tr>
       <td>${t.date}</td>
-      <td>${t.type==='매입'?'<span class="badge badge-blue">매입</span>':t.type==='매출'?'<span class="badge badge-green">매출</span>':t.type==='폐기'?'<span class="badge badge-red">폐기</span>':'<span class="badge badge-gray">'+ t.type +'</span>'}</td>
+      <td>${t.type==='매입'?'<span class="badge badge-blue">매입</span>':t.type==='매출'?'<span class="badge badge-green">매출</span>':t.type==='폐기'?'<span class="badge badge-red">폐기</span>':'<span class="badge badge-gray">'+t.type+'</span>'}</td>
       <td>${t.productName}</td>
       <td class="td-right">${fmtNum(t.qty)}</td>
       <td class="td-right">${fmtWon(t.amount)}</td>
       <td>${t.partner||'-'}</td>
       <td>${t.manager||'-'}</td>
-    </tr>
-  `).join('') || '<tr><td colspan="7" class="empty-state">데이터가 없습니다</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="7" class="empty-state">데이터가 없습니다</td></tr>';
 }
 
 // ========================================
@@ -896,27 +1032,24 @@ function renderDashboard() {
 // ========================================
 function renderStock() {
   const products = getProducts();
-  const search = document.getElementById('stock-search').value.toLowerCase();
+  const search  = document.getElementById('stock-search').value.toLowerCase();
   const statusF = document.getElementById('stock-status-filter').value;
 
   const mapped = products.map(p => {
     const curr = calcStock(p.code);
-    const status = getStockStatus(curr, p.safetyStock, p.maxStock);
-    const avgPrice = calcAvgBuyPrice(p.code);
-    return { ...p, curr, status, stockAmt: curr * avgPrice };
+    const status = getStockStatus(curr, p.safetyStock);
+    return { ...p, curr, status, stockAmt: curr * calcAvgBuyPrice(p.code) };
   });
-
   const filtered = mapped.filter(p => {
     const matchSearch = !search || p.name.toLowerCase().includes(search) || p.code.toLowerCase().includes(search);
     const matchStatus = !statusF || (statusF==='정상'&&p.status==='ok') || (statusF==='주의'&&p.status==='warn') || (statusF==='부족'&&p.status==='danger');
     return matchSearch && matchStatus;
   });
 
-  // Cards
   document.getElementById('stock-cards').innerHTML = filtered.map(p => {
     const pct = p.maxStock > 0 ? Math.min(100, Math.round(p.curr / p.maxStock * 100)) : 0;
     const barClass = p.status === 'danger' ? 'danger' : p.status === 'warn' ? 'warn' : '';
-    const numClass = p.status === 'danger' ? 'red' : p.status === 'warn' ? 'orange' : 'green';
+    const numClass = p.status === 'danger' ? 'red'   : p.status === 'warn' ? 'orange' : 'green';
     return `
       <div class="stock-card ${p.status === 'danger' ? 'danger' : p.status === 'warn' ? 'warn' : ''}">
         <div class="stock-card-name">${p.name}</div>
@@ -936,25 +1069,20 @@ function renderStock() {
           <div class="progress-bar ${barClass}" style="width:${pct}%"></div>
         </div>
         <div style="text-align:right;font-size:11px;color:var(--gray-400);margin-top:3px">${pct}% / 최대</div>
-      </div>
-    `;
+      </div>`;
   }).join('') || '<div class="empty-state"><div>검색 결과가 없습니다</div></div>';
 
-  // Table
   document.getElementById('stock-tbody').innerHTML = filtered.map(p => `
     <tr>
       <td>${p.code}</td>
       <td><strong>${p.name}</strong></td>
-      <td>${p.spec}</td>
-      <td>${p.unit}</td>
-      <td>${p.category}</td>
+      <td>${p.spec}</td><td>${p.unit}</td><td>${p.category}</td>
       <td class="td-right">${fmtNum(p.safetyStock)}</td>
       <td class="td-right">${fmtNum(p.maxStock)}</td>
       <td class="td-right"><strong>${fmtNum(p.curr)}</strong></td>
       <td>${getStatusLabel(p.status)}</td>
       <td class="td-right">${fmtWon(p.stockAmt)}</td>
-    </tr>
-  `).join('') || '<tr><td colspan="10" class="empty-state">데이터가 없습니다</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="10" class="empty-state">데이터가 없습니다</td></tr>';
 }
 
 function resetStockFilters() {
@@ -962,7 +1090,6 @@ function resetStockFilters() {
   document.getElementById('stock-status-filter').value = '';
   renderStock();
 }
-
 document.getElementById('stock-search').addEventListener('input', () => renderStock());
 document.getElementById('stock-status-filter').addEventListener('change', () => renderStock());
 
@@ -971,30 +1098,26 @@ document.getElementById('stock-status-filter').addEventListener('change', () => 
 // ========================================
 function initPurchaseFilters() {
   const products = getProducts();
-  const sel = document.getElementById('pur-product');
-  sel.innerHTML = '<option value="">전체 품목</option>' + products.map(p => `<option value="${p.code}">${p.name}</option>`).join('');
-
+  document.getElementById('pur-product').innerHTML =
+    '<option value="">전체 품목</option>' + products.map(p=>`<option value="${p.code}">${p.name}</option>`).join('');
   const months = getMonths();
   if (months.length > 0) {
-    const first = months[0];
-    const last = months[months.length - 1];
-    document.getElementById('pur-from').value = first + '-01';
-    const [ly, lm] = last.split('-');
-    const lastDay = new Date(parseInt(ly), parseInt(lm), 0).getDate();
-    document.getElementById('pur-to').value = `${last}-${lastDay}`;
+    document.getElementById('pur-from').value = months[0] + '-01';
+    const [ly, lm] = months[months.length-1].split('-');
+    document.getElementById('pur-to').value = `${months[months.length-1]}-${new Date(parseInt(ly),parseInt(lm),0).getDate()}`;
   }
 }
 
 function renderPurchase() {
   const productF = document.getElementById('pur-product').value;
-  const fromF = document.getElementById('pur-from').value;
-  const toF = document.getElementById('pur-to').value;
+  const fromF    = document.getElementById('pur-from').value;
+  const toF      = document.getElementById('pur-to').value;
 
   let txns = getTransactions().filter(t => t.type === '매입');
   if (productF) txns = txns.filter(t => t.productCode === productF);
-  if (fromF) txns = txns.filter(t => t.date >= fromF);
-  if (toF) txns = txns.filter(t => t.date <= toF);
-  txns.sort((a, b) => a.date.localeCompare(b.date));
+  if (fromF)    txns = txns.filter(t => t.date >= fromF);
+  if (toF)      txns = txns.filter(t => t.date <= toF);
+  txns.sort((a,b) => a.date.localeCompare(b.date));
 
   const totalQty = txns.reduce((s,t)=>s+t.qty,0);
   const totalAmt = txns.reduce((s,t)=>s+t.amount,0);
@@ -1004,10 +1127,8 @@ function renderPurchase() {
     <div class="trend-chip">총 매입금액: ${fmtWon(totalAmt)}</div>
     <div class="trend-chip orange">총 매입수량: ${fmtNum(totalQty)}</div>
     <div class="trend-chip">평균 단가: ${fmtWon(avgPrice)}</div>
-    <div class="trend-chip">거래 건수: ${txns.length}건</div>
-  `;
+    <div class="trend-chip">거래 건수: ${txns.length}건</div>`;
 
-  // 월별 트렌드
   const allMonths = getMonths();
   const filtMonths = allMonths.filter(m => {
     const mStart = m + '-01';
@@ -1015,71 +1136,51 @@ function renderPurchase() {
     const mEnd = `${m}-${new Date(parseInt(y),parseInt(mo),0).getDate()}`;
     return (!fromF || mEnd >= fromF) && (!toF || mStart <= toF);
   });
-
   const purMonthData = filtMonths.map(m => {
-    let mTxns = getTransactions().filter(t => t.type === '매입' && t.date.startsWith(m));
-    if (productF) mTxns = mTxns.filter(t => t.productCode === productF);
-    return { qty: mTxns.reduce((s,t)=>s+t.qty,0), amt: mTxns.reduce((s,t)=>s+t.amount,0) };
+    let mt = getTransactions().filter(t => t.type==='매입' && t.date.startsWith(m));
+    if (productF) mt = mt.filter(t => t.productCode === productF);
+    return { qty: mt.reduce((s,t)=>s+t.qty,0), amt: mt.reduce((s,t)=>s+t.amount,0) };
   });
 
   destroyChart('pur-trend');
-  const ctx = document.getElementById('chart-pur-trend').getContext('2d');
-  charts['pur-trend'] = new Chart(ctx, {
+  charts['pur-trend'] = new Chart(document.getElementById('chart-pur-trend').getContext('2d'), {
     type: 'bar',
     data: {
-      labels: filtMonths.map(m=>{ const [y,mo]=m.split('-'); return `${parseInt(mo)}월`; }),
+      labels: filtMonths.map(m=>{ const [,mo]=m.split('-'); return `${parseInt(mo)}월`; }),
       datasets: [
         { label: '매입금액', data: purMonthData.map(d=>d.amt), backgroundColor: '#fde68a', borderColor: '#f59e0b', borderWidth: 2, borderRadius: 4, yAxisID: 'y' },
         { label: '매입수량', data: purMonthData.map(d=>d.qty), type: 'line', borderColor: '#3b82f6', pointRadius: 4, tension: 0.3, yAxisID: 'y1' },
       ]
     },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'top' } },
-      scales: {
-        y: { type: 'linear', position: 'left', ticks: { callback: v => fmtNum(v) } },
-        y1: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, ticks: { stepSize: 1 } }
-      }
-    }
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } },
+      scales: { y: { type:'linear', position:'left', ticks:{ callback: v=>fmtNum(v) } }, y1: { type:'linear', position:'right', grid:{ drawOnChartArea:false }, ticks:{ stepSize:1 } } } }
   });
 
-  // 품목별 파이
-  const products = getProducts();
   const byProd = {};
   txns.forEach(t => { byProd[t.productName] = (byProd[t.productName]||0) + t.amount; });
   destroyChart('pur-pie');
-  const ctx2 = document.getElementById('chart-pur-pie').getContext('2d');
-  charts['pur-pie'] = new Chart(ctx2, {
+  charts['pur-pie'] = new Chart(document.getElementById('chart-pur-pie').getContext('2d'), {
     type: 'doughnut',
-    data: {
-      labels: Object.keys(byProd),
-      datasets: [{ data: Object.values(byProd), backgroundColor: COLORS.slice(0, Object.keys(byProd).length) }]
-    },
+    data: { labels: Object.keys(byProd), datasets: [{ data: Object.values(byProd), backgroundColor: COLORS.slice(0, Object.keys(byProd).length) }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
   });
 
-  // Table
-  const products_map = {};
-  products.forEach(p => products_map[p.code] = p);
+  const pmap = {};
+  getProducts().forEach(p => pmap[p.code] = p);
   document.getElementById('pur-tbody').innerHTML = txns.map(t => `
     <tr>
-      <td>${t.date}</td>
-      <td><strong>${t.productName}</strong></td>
-      <td>${products_map[t.productCode]?.spec || '-'}</td>
+      <td>${t.date}</td><td><strong>${t.productName}</strong></td>
+      <td>${pmap[t.productCode]?.spec||'-'}</td>
       <td class="td-right">${fmtNum(t.qty)}</td>
       <td class="td-right">${fmtWon(t.unitPrice)}</td>
       <td class="td-right"><strong>${fmtWon(t.amount)}</strong></td>
-      <td>${t.partner||'-'}</td>
-      <td>${t.lot||'-'}</td>
-      <td>${t.note||'-'}</td>
-    </tr>
-  `).join('') || '<tr><td colspan="9" class="empty-state">데이터가 없습니다</td></tr>';
+      <td>${t.partner||'-'}</td><td>${t.lot||'-'}</td><td>${t.note||'-'}</td>
+    </tr>`).join('') || '<tr><td colspan="9" class="empty-state">데이터가 없습니다</td></tr>';
 }
 
 function resetPurchaseFilters() {
   document.getElementById('pur-product').value = '';
-  initPurchaseFilters();
-  renderPurchase();
+  initPurchaseFilters(); renderPurchase();
 }
 
 // ========================================
@@ -1089,117 +1190,97 @@ function initSalesFilters() {
   const products = getProducts();
   const txns = getTransactions().filter(t => t.type === '매출');
 
-  const sel = document.getElementById('sal-product');
-  sel.innerHTML = '<option value="">전체 품목</option>' + products.map(p => `<option value="${p.code}">${p.name}</option>`).join('');
+  document.getElementById('sal-product').innerHTML =
+    '<option value="">전체 품목</option>' + products.map(p=>`<option value="${p.code}">${p.name}</option>`).join('');
 
-  const hospitals = [...new Set(txns.map(t => t.partner).filter(Boolean))].sort();
-  const hospSel = document.getElementById('sal-hospital');
-  hospSel.innerHTML = '<option value="">전체 병원</option>' + hospitals.map(h => `<option value="${h}">${h}</option>`).join('');
+  const hospitals = [...new Set(txns.map(t=>t.partner).filter(Boolean))].sort();
+  document.getElementById('sal-hospital').innerHTML =
+    '<option value="">전체 병원</option>' + hospitals.map(h=>`<option value="${h}">${h}</option>`).join('');
 
-  const months = [...new Set(txns.map(t => t.date.substring(0,7)))].sort();
-  const monthSel = document.getElementById('sal-month');
-  monthSel.innerHTML = '<option value="">전체 기간</option>' + months.map(m => `<option value="${m}">${monthLabel(m)}</option>`).join('');
+  const months = [...new Set(txns.map(t=>t.date.substring(0,7)))].sort();
+  document.getElementById('sal-month').innerHTML =
+    '<option value="">전체 기간</option>' + months.map(m=>`<option value="${m}">${monthLabel(m)}</option>`).join('');
 }
 
 function renderSales() {
   const productF = document.getElementById('sal-product').value;
-  const hospF = document.getElementById('sal-hospital').value;
-  const monthF = document.getElementById('sal-month').value;
+  const hospF    = document.getElementById('sal-hospital').value;
+  const monthF   = document.getElementById('sal-month').value;
 
   let txns = getTransactions().filter(t => t.type === '매출');
   if (productF) txns = txns.filter(t => t.productCode === productF);
-  if (hospF) txns = txns.filter(t => t.partner === hospF);
-  if (monthF) txns = txns.filter(t => t.date.startsWith(monthF));
+  if (hospF)    txns = txns.filter(t => t.partner === hospF);
+  if (monthF)   txns = txns.filter(t => t.date.startsWith(monthF));
   txns.sort((a,b) => a.date.localeCompare(b.date));
 
-  const totalQty = txns.reduce((s,t)=>s+t.qty,0);
-  const totalAmt = txns.reduce((s,t)=>s+t.amount,0);
+  const totalQty  = txns.reduce((s,t)=>s+t.qty,0);
+  const totalAmt  = txns.reduce((s,t)=>s+t.amount,0);
   const totalCost = txns.reduce((s,t)=>s+(calcAvgBuyPrice(t.productCode)*t.qty),0);
-  const margin = totalAmt - totalCost;
+  const margin    = totalAmt - totalCost;
   const marginRate = totalAmt > 0 ? (margin/totalAmt*100).toFixed(1) : 0;
 
   document.getElementById('sal-chips').innerHTML = `
     <div class="trend-chip green">총 매출금액: ${fmtWon(totalAmt)}</div>
     <div class="trend-chip">총 매출수량: ${fmtNum(totalQty)}</div>
     <div class="trend-chip">마진: ${fmtWon(margin)} (${marginRate}%)</div>
-    <div class="trend-chip">거래 건수: ${txns.length}건</div>
-  `;
+    <div class="trend-chip">거래 건수: ${txns.length}건</div>`;
 
-  // 월별 트렌드
-  const allMonths = getMonths();
+  const allMonths   = getMonths();
   const salMonthData = allMonths.map(m => {
-    let mTxns = getTransactions().filter(t => t.type === '매출' && t.date.startsWith(m));
-    if (productF) mTxns = mTxns.filter(t => t.productCode === productF);
-    if (hospF) mTxns = mTxns.filter(t => t.partner === hospF);
-    return { qty: mTxns.reduce((s,t)=>s+t.qty,0), amt: mTxns.reduce((s,t)=>s+t.amount,0) };
+    let mt = getTransactions().filter(t => t.type==='매출' && t.date.startsWith(m));
+    if (productF) mt = mt.filter(t => t.productCode === productF);
+    if (hospF)    mt = mt.filter(t => t.partner === hospF);
+    return { qty: mt.reduce((s,t)=>s+t.qty,0), amt: mt.reduce((s,t)=>s+t.amount,0) };
   });
 
   destroyChart('sal-trend');
-  const ctx = document.getElementById('chart-sal-trend').getContext('2d');
-  charts['sal-trend'] = new Chart(ctx, {
+  charts['sal-trend'] = new Chart(document.getElementById('chart-sal-trend').getContext('2d'), {
     type: 'line',
     data: {
-      labels: allMonths.map(m=>{ const [y,mo]=m.split('-'); return `${parseInt(mo)}월`; }),
+      labels: allMonths.map(m=>{ const [,mo]=m.split('-'); return `${parseInt(mo)}월`; }),
       datasets: [
         { label: '매출금액', data: salMonthData.map(d=>d.amt), borderColor: '#10b981', backgroundColor: '#d1fae5', tension: 0.3, fill: true, pointRadius: 4 },
         { label: '매출수량', data: salMonthData.map(d=>d.qty), borderColor: '#3b82f6', borderDash: [5,5], tension: 0.3, pointRadius: 3, yAxisID: 'y1' },
       ]
     },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'top' } },
-      scales: {
-        y: { type: 'linear', position: 'left', ticks: { callback: v => fmtNum(v) } },
-        y1: { type: 'linear', position: 'right', grid: { drawOnChartArea: false } }
-      }
-    }
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } },
+      scales: { y: { type:'linear', position:'left', ticks:{ callback: v=>fmtNum(v) } }, y1: { type:'linear', position:'right', grid:{ drawOnChartArea:false } } } }
   });
 
-  // 병원별 도넛
   const byHosp = {};
-  let hospTxns = getTransactions().filter(t => t.type === '매출');
+  let hospTxns = getTransactions().filter(t => t.type==='매출');
   if (productF) hospTxns = hospTxns.filter(t => t.productCode === productF);
-  if (monthF) hospTxns = hospTxns.filter(t => t.date.startsWith(monthF));
+  if (monthF)   hospTxns = hospTxns.filter(t => t.date.startsWith(monthF));
   hospTxns.forEach(t => { if(t.partner) byHosp[t.partner] = (byHosp[t.partner]||0) + t.amount; });
 
   destroyChart('sal-hosp');
-  const ctx2 = document.getElementById('chart-sal-hosp').getContext('2d');
-  charts['sal-hosp'] = new Chart(ctx2, {
+  charts['sal-hosp'] = new Chart(document.getElementById('chart-sal-hosp').getContext('2d'), {
     type: 'doughnut',
-    data: {
-      labels: Object.keys(byHosp),
-      datasets: [{ data: Object.values(byHosp), backgroundColor: COLORS.slice(0, Object.keys(byHosp).length) }]
-    },
+    data: { labels: Object.keys(byHosp), datasets: [{ data: Object.values(byHosp), backgroundColor: COLORS.slice(0, Object.keys(byHosp).length) }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
   });
 
-  // Table
   document.getElementById('sal-tbody').innerHTML = txns.map(t => {
     const avgBuy = calcAvgBuyPrice(t.productCode);
-    const cost = avgBuy * t.qty;
-    const marginAmt = t.amount - cost;
+    const marginAmt = t.amount - (avgBuy * t.qty);
     const marginPct = t.amount > 0 ? (marginAmt/t.amount*100).toFixed(1) : 0;
-    const marginColor = marginAmt >= 0 ? 'color:var(--success)' : 'color:var(--danger)';
     return `
       <tr>
-        <td>${t.date}</td>
-        <td><strong>${t.productName}</strong></td>
-        <td>${t.partner||'-'}</td>
+        <td>${t.date}</td><td><strong>${t.productName}</strong></td><td>${t.partner||'-'}</td>
         <td class="td-right">${fmtNum(t.qty)}</td>
         <td class="td-right">${fmtWon(t.unitPrice)}</td>
         <td class="td-right"><strong>${fmtWon(t.amount)}</strong></td>
-        <td class="td-right">${avgBuy > 0 ? fmtWon(avgBuy) : '-'}</td>
-        <td class="td-right" style="${marginColor}">${fmtWon(marginAmt)} (${marginPct}%)</td>
+        <td class="td-right">${avgBuy>0?fmtWon(avgBuy):'-'}</td>
+        <td class="td-right" style="${marginAmt>=0?'color:var(--success)':'color:var(--danger)'}">${fmtWon(marginAmt)} (${marginPct}%)</td>
         <td>${t.manager||'-'}</td>
-      </tr>
-    `;
+      </tr>`;
   }).join('') || '<tr><td colspan="9" class="empty-state">데이터가 없습니다</td></tr>';
 }
 
 function resetSalesFilters() {
-  document.getElementById('sal-product').value = '';
+  document.getElementById('sal-product').value  = '';
   document.getElementById('sal-hospital').value = '';
-  document.getElementById('sal-month').value = '';
+  document.getElementById('sal-month').value    = '';
   renderSales();
 }
 
@@ -1208,21 +1289,21 @@ function resetSalesFilters() {
 // ========================================
 function initRecordFilters() {
   const products = getProducts();
-  const sel = document.getElementById('rec-product');
-  sel.innerHTML = '<option value="">전체</option>' + products.map(p=>`<option value="${p.code}">${p.name}</option>`).join('');
+  document.getElementById('rec-product').innerHTML =
+    '<option value="">전체</option>' + products.map(p=>`<option value="${p.code}">${p.name}</option>`).join('');
 }
 
 function renderRecords() {
-  const typeF = document.getElementById('rec-type').value;
+  const typeF    = document.getElementById('rec-type').value;
   const productF = document.getElementById('rec-product').value;
-  const fromF = document.getElementById('rec-from').value;
-  const toF = document.getElementById('rec-to').value;
+  const fromF    = document.getElementById('rec-from').value;
+  const toF      = document.getElementById('rec-to').value;
 
   let txns = getTransactions();
-  if (typeF) txns = txns.filter(t => t.type === typeF);
+  if (typeF)    txns = txns.filter(t => t.type === typeF);
   if (productF) txns = txns.filter(t => t.productCode === productF);
-  if (fromF) txns = txns.filter(t => t.date >= fromF);
-  if (toF) txns = txns.filter(t => t.date <= toF);
+  if (fromF)    txns = txns.filter(t => t.date >= fromF);
+  if (toF)      txns = txns.filter(t => t.date <= toF);
   txns.sort((a,b) => b.date.localeCompare(a.date));
 
   document.getElementById('rec-tbody').innerHTML = txns.map(t => {
@@ -1231,29 +1312,25 @@ function renderRecords() {
       <tr>
         <td>${t.date}</td>
         <td><span class="badge ${typeBadge}">${t.type}</span></td>
-        <td>${t.productCode}</td>
-        <td><strong>${t.productName}</strong></td>
+        <td>${t.productCode}</td><td><strong>${t.productName}</strong></td>
         <td class="td-right">${fmtNum(t.qty)}</td>
         <td class="td-right">${fmtWon(t.unitPrice)}</td>
         <td class="td-right">${fmtWon(t.amount)}</td>
-        <td>${t.partner||'-'}</td>
-        <td>${t.manager||'-'}</td>
-        <td>${t.lot||'-'}</td>
-        <td>${t.note||'-'}</td>
+        <td>${t.partner||'-'}</td><td>${t.manager||'-'}</td>
+        <td>${t.lot||'-'}</td><td>${t.note||'-'}</td>
         <td class="td-center" style="white-space:nowrap">
           <button class="btn btn-outline btn-icon btn-sm" onclick="openEditTransaction(${t.id})" title="수정">✏️</button>
           <button class="btn btn-danger btn-icon btn-sm" onclick="deleteTransaction(${t.id})" title="삭제" style="margin-left:4px">🗑️</button>
         </td>
-      </tr>
-    `;
+      </tr>`;
   }).join('') || '<tr><td colspan="12" class="empty-state"><div class="icon">📋</div>데이터가 없습니다</td></tr>';
 }
 
 function resetRecordFilters() {
-  document.getElementById('rec-type').value = '';
+  document.getElementById('rec-type').value    = '';
   document.getElementById('rec-product').value = '';
-  document.getElementById('rec-from').value = '';
-  document.getElementById('rec-to').value = '';
+  document.getElementById('rec-from').value    = '';
+  document.getElementById('rec-to').value      = '';
   renderRecords();
 }
 
@@ -1261,31 +1338,24 @@ function resetRecordFilters() {
 // 품목관리
 // ========================================
 function initProductFilters() {
-  const products = getProducts();
-  const cats = [...new Set(products.map(p => p.category).filter(Boolean))].sort();
-  const sel = document.getElementById('prod-cat');
-  sel.innerHTML = '<option value="">전체</option>' + cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+  const cats = [...new Set(getProducts().map(p=>p.category).filter(Boolean))].sort();
+  document.getElementById('prod-cat').innerHTML =
+    '<option value="">전체</option>' + cats.map(c=>`<option value="${c}">${c}</option>`).join('');
 }
 
 function renderProductsPage() {
   const search = document.getElementById('prod-search').value.toLowerCase();
-  const catF = document.getElementById('prod-cat').value;
+  const catF   = document.getElementById('prod-cat').value;
   let products = getProducts();
   if (search) products = products.filter(p => p.name.toLowerCase().includes(search) || p.code.toLowerCase().includes(search));
-  if (catF) products = products.filter(p => p.category === catF);
+  if (catF)   products = products.filter(p => p.category === catF);
 
   document.getElementById('prod-tbody').innerHTML = products.map(p => `
     <tr>
-      <td>${p.code}</td>
-      <td><strong>${p.name}</strong></td>
-      <td>${p.spec||'-'}</td>
-      <td>${p.unit||'-'}</td>
-      <td>${p.category||'-'}</td>
-      <td>${p.manufacturer||'-'}</td>
-      <td>${p.supplier||'-'}</td>
-      <td>${p.location||'-'}</td>
-      <td class="td-right">${p.safetyStock}</td>
-      <td class="td-right">${p.maxStock}</td>
+      <td>${p.code}</td><td><strong>${p.name}</strong></td>
+      <td>${p.spec||'-'}</td><td>${p.unit||'-'}</td><td>${p.category||'-'}</td>
+      <td>${p.manufacturer||'-'}</td><td>${p.supplier||'-'}</td><td>${p.location||'-'}</td>
+      <td class="td-right">${p.safetyStock}</td><td class="td-right">${p.maxStock}</td>
       <td class="td-center">${p.expiryMgmt==='Y'?'<span class="badge badge-blue">관리</span>':'<span class="badge badge-gray">미관리</span>'}</td>
       <td class="td-center">${p.lotMgmt==='Y'?'<span class="badge badge-blue">관리</span>':'<span class="badge badge-gray">미관리</span>'}</td>
       <td>${p.insurance||'-'}</td>
@@ -1293,52 +1363,45 @@ function renderProductsPage() {
         <button class="btn btn-outline btn-icon btn-sm" onclick="openEditProduct('${p.code}')" title="수정">✏️</button>
         <button class="btn btn-danger btn-icon btn-sm" onclick="deleteProduct('${p.code}')" title="삭제" style="margin-left:4px">🗑️</button>
       </td>
-    </tr>
-  `).join('') || '<tr><td colspan="14" class="empty-state"><div class="icon">🗂</div>품목을 추가해주세요</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="14" class="empty-state"><div class="icon">🗂</div>품목을 추가해주세요</td></tr>';
 }
 
 function resetProductFilters() {
   document.getElementById('prod-search').value = '';
-  document.getElementById('prod-cat').value = '';
+  document.getElementById('prod-cat').value    = '';
   renderProductsPage();
 }
-
-document.getElementById('prod-search').addEventListener('input', renderProductsPage);
-document.getElementById('prod-cat').addEventListener('change', renderProductsPage);
+document.getElementById('prod-search').addEventListener('input',  renderProductsPage);
+document.getElementById('prod-cat').addEventListener('change',    renderProductsPage);
 
 // ========================================
-// CRUD: TRANSACTION
+// CRUD: TRANSACTION (async)
 // ========================================
 function populateTxProductSelect() {
-  const products = getProducts();
-  const sel = document.getElementById('tx-product');
-  sel.innerHTML = products.map(p=>`<option value="${p.code}">${p.name}</option>`).join('');
+  document.getElementById('tx-product').innerHTML =
+    getProducts().map(p=>`<option value="${p.code}">${p.name}</option>`).join('');
 }
-
-function fillProductInfo() {
-  // auto-fill product name when product changes
-}
-
+function fillProductInfo() {}
 function calcAmount() {
-  const qty = parseFloat(document.getElementById('tx-qty').value) || 0;
+  const qty   = parseFloat(document.getElementById('tx-qty').value)   || 0;
   const price = parseFloat(document.getElementById('tx-price').value) || 0;
   document.getElementById('tx-amount').value = qty * price;
 }
 
 function openAddTransaction() {
   populateTxProductSelect();
-  document.getElementById('tx-id').value = '';
+  document.getElementById('tx-id').value      = '';
   document.getElementById('tx-modal-title').textContent = '거래 추가';
-  document.getElementById('tx-date').value = new Date().toISOString().split('T')[0];
-  document.getElementById('tx-type').value = '매출';
-  document.getElementById('tx-qty').value = '';
-  document.getElementById('tx-price').value = '';
-  document.getElementById('tx-amount').value = '';
+  document.getElementById('tx-date').value    = new Date().toISOString().split('T')[0];
+  document.getElementById('tx-type').value    = '매출';
+  document.getElementById('tx-qty').value     = '';
+  document.getElementById('tx-price').value   = '';
+  document.getElementById('tx-amount').value  = '';
   document.getElementById('tx-partner').value = '';
-  document.getElementById('tx-manager').value = '고영찬';
-  document.getElementById('tx-lot').value = '';
-  document.getElementById('tx-expiry').value = '';
-  document.getElementById('tx-note').value = '';
+  document.getElementById('tx-manager').value = '';
+  document.getElementById('tx-lot').value     = '';
+  document.getElementById('tx-expiry').value  = '';
+  document.getElementById('tx-note').value    = '';
   document.getElementById('modal-transaction').classList.add('active');
 }
 
@@ -1347,86 +1410,81 @@ function openEditTransaction(id) {
   const t = getTransactions().find(t => t.id === id);
   if (!t) return;
   document.getElementById('tx-modal-title').textContent = '거래 수정';
-  document.getElementById('tx-id').value = t.id;
-  document.getElementById('tx-date').value = t.date;
-  document.getElementById('tx-type').value = t.type;
+  document.getElementById('tx-id').value      = t.id;
+  document.getElementById('tx-date').value    = t.date;
+  document.getElementById('tx-type').value    = t.type;
   document.getElementById('tx-product').value = t.productCode;
-  document.getElementById('tx-qty').value = t.qty;
-  document.getElementById('tx-price').value = t.unitPrice;
-  document.getElementById('tx-amount').value = t.amount;
+  document.getElementById('tx-qty').value     = t.qty;
+  document.getElementById('tx-price').value   = t.unitPrice;
+  document.getElementById('tx-amount').value  = t.amount;
   document.getElementById('tx-partner').value = t.partner || '';
   document.getElementById('tx-manager').value = t.manager || '';
-  document.getElementById('tx-lot').value = t.lot || '';
-  document.getElementById('tx-expiry').value = t.expiry || '';
-  document.getElementById('tx-note').value = t.note || '';
+  document.getElementById('tx-lot').value     = t.lot    || '';
+  document.getElementById('tx-expiry').value  = t.expiry || '';
+  document.getElementById('tx-note').value    = t.note   || '';
   document.getElementById('modal-transaction').classList.add('active');
 }
 
-function saveTransaction() {
-  const date = document.getElementById('tx-date').value;
-  const type = document.getElementById('tx-type').value;
+async function saveTransaction() {
+  const date        = document.getElementById('tx-date').value;
+  const type        = document.getElementById('tx-type').value;
   const productCode = document.getElementById('tx-product').value;
-  const qty = parseInt(document.getElementById('tx-qty').value);
-  const unitPrice = parseFloat(document.getElementById('tx-price').value);
+  const qty         = parseInt(document.getElementById('tx-qty').value);
+  const unitPrice   = parseFloat(document.getElementById('tx-price').value);
 
   if (!date || !productCode || !qty || !unitPrice) {
-    alert('일자, 품목, 수량, 단가는 필수 입력 항목입니다.');
-    return;
+    alert('일자, 품목, 수량, 단가는 필수 입력 항목입니다.'); return;
   }
-
-  const products = getProducts();
-  const prod = products.find(p => p.code === productCode);
-  const txns = getTransactions();
+  const prod  = getProducts().find(p => p.code === productCode);
   const idVal = document.getElementById('tx-id').value;
 
   const tx = {
-    id: idVal ? parseInt(idVal) : getNextId(),
-    date,
-    type,
-    productCode,
+    ...(idVal ? { id: parseInt(idVal) } : {}),
+    date, type, productCode,
     productName: prod ? prod.name : productCode,
-    lot: document.getElementById('tx-lot').value,
-    expiry: document.getElementById('tx-expiry').value,
-    qty,
-    unitPrice,
-    amount: qty * unitPrice,
-    dept: '영업관리부',
+    lot:     document.getElementById('tx-lot').value,
+    expiry:  document.getElementById('tx-expiry').value,
+    qty, unitPrice, amount: qty * unitPrice,
+    dept:    '영업관리부',
     manager: document.getElementById('tx-manager').value,
     partner: document.getElementById('tx-partner').value,
-    note: document.getElementById('tx-note').value,
+    note:    document.getElementById('tx-note').value,
   };
 
-  if (idVal) {
-    const idx = txns.findIndex(t => t.id === parseInt(idVal));
-    if (idx >= 0) txns[idx] = tx;
-  } else {
-    txns.push(tx);
-  }
-  saveTransactions(txns);
-  closeModal('modal-transaction');
-  renderRecords();
+  try {
+    if (idVal) { await dbUpdateTransaction(tx); }
+    else       { await dbInsertTransaction(tx); }
+    await loadAllData();
+    closeModal('modal-transaction');
+    renderRecords();
+    initSalesFilters();
+    initPurchaseFilters();
+  } catch(e) { alert('저장 오류: ' + e.message); }
 }
 
-function deleteTransaction(id) {
+async function deleteTransaction(id) {
   if (!confirm('이 거래 기록을 삭제하시겠습니까?')) return;
-  const txns = getTransactions().filter(t => t.id !== id);
-  saveTransactions(txns);
-  renderRecords();
+  try {
+    await dbDeleteTransaction(id);
+    await loadAllData();
+    renderRecords();
+  } catch(e) { alert('삭제 오류: ' + e.message); }
 }
 
 // ========================================
-// CRUD: PRODUCT
+// CRUD: PRODUCT (async)
 // ========================================
 function openAddProduct() {
   document.getElementById('prod-modal-title').textContent = '품목 추가';
   document.getElementById('prod-edit-code').value = '';
-  ['prod-code','prod-name','prod-spec','prod-unit','prod-category','prod-manufacturer','prod-supplier','prod-location','prod-note'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('prod-safety').value = '10';
-  document.getElementById('prod-max').value = '60';
+  ['prod-code','prod-name','prod-spec','prod-unit','prod-category','prod-manufacturer','prod-supplier','prod-location','prod-note']
+    .forEach(id => document.getElementById(id).value = '');
+  document.getElementById('prod-safety').value      = '10';
+  document.getElementById('prod-max').value         = '60';
   document.getElementById('prod-expiry-mgmt').value = 'N';
-  document.getElementById('prod-lot-mgmt').value = 'N';
-  document.getElementById('prod-insurance').value = '보험';
-  document.getElementById('prod-code').disabled = false;
+  document.getElementById('prod-lot-mgmt').value    = 'N';
+  document.getElementById('prod-insurance').value   = '보험';
+  document.getElementById('prod-code').disabled     = false;
   document.getElementById('modal-product').classList.add('active');
 }
 
@@ -1434,69 +1492,80 @@ function openEditProduct(code) {
   const p = getProducts().find(p => p.code === code);
   if (!p) return;
   document.getElementById('prod-modal-title').textContent = '품목 수정';
-  document.getElementById('prod-edit-code').value = code;
-  document.getElementById('prod-code').value = p.code;
-  document.getElementById('prod-code').disabled = true;
-  document.getElementById('prod-name').value = p.name;
-  document.getElementById('prod-spec').value = p.spec || '';
-  document.getElementById('prod-unit').value = p.unit || '';
-  document.getElementById('prod-category').value = p.category || '';
-  document.getElementById('prod-manufacturer').value = p.manufacturer || '';
-  document.getElementById('prod-supplier').value = p.supplier || '';
-  document.getElementById('prod-location').value = p.location || '';
-  document.getElementById('prod-safety').value = p.safetyStock || 0;
-  document.getElementById('prod-max').value = p.maxStock || 0;
-  document.getElementById('prod-expiry-mgmt').value = p.expiryMgmt || 'N';
-  document.getElementById('prod-lot-mgmt').value = p.lotMgmt || 'N';
-  document.getElementById('prod-insurance').value = p.insurance || '보험';
-  document.getElementById('prod-note').value = p.note || '';
+  document.getElementById('prod-edit-code').value       = code;
+  document.getElementById('prod-code').value            = p.code;
+  document.getElementById('prod-code').disabled         = true;
+  document.getElementById('prod-name').value            = p.name;
+  document.getElementById('prod-spec').value            = p.spec || '';
+  document.getElementById('prod-unit').value            = p.unit || '';
+  document.getElementById('prod-category').value        = p.category || '';
+  document.getElementById('prod-manufacturer').value    = p.manufacturer || '';
+  document.getElementById('prod-supplier').value        = p.supplier || '';
+  document.getElementById('prod-location').value        = p.location || '';
+  document.getElementById('prod-safety').value          = p.safetyStock || 0;
+  document.getElementById('prod-max').value             = p.maxStock || 0;
+  document.getElementById('prod-expiry-mgmt').value     = p.expiryMgmt || 'N';
+  document.getElementById('prod-lot-mgmt').value        = p.lotMgmt || 'N';
+  document.getElementById('prod-insurance').value       = p.insurance || '보험';
+  document.getElementById('prod-note').value            = p.note || '';
   document.getElementById('modal-product').classList.add('active');
 }
 
-function saveProduct() {
+async function saveProduct() {
   const editCode = document.getElementById('prod-edit-code').value;
-  const code = editCode || document.getElementById('prod-code').value.trim();
-  const name = document.getElementById('prod-name').value.trim();
+  const code     = editCode || document.getElementById('prod-code').value.trim();
+  const name     = document.getElementById('prod-name').value.trim();
   if (!code || !name) { alert('품목코드와 품목명은 필수 항목입니다.'); return; }
-
-  const products = getProducts();
-  if (!editCode && products.find(p => p.code === code)) { alert('이미 존재하는 품목코드입니다.'); return; }
+  if (!editCode && getProducts().find(p => p.code === code)) { alert('이미 존재하는 품목코드입니다.'); return; }
 
   const prod = {
-    code,
-    name,
-    spec: document.getElementById('prod-spec').value,
-    unit: document.getElementById('prod-unit').value,
-    category: document.getElementById('prod-category').value,
+    code, name,
+    spec:         document.getElementById('prod-spec').value,
+    unit:         document.getElementById('prod-unit').value,
+    category:     document.getElementById('prod-category').value,
     manufacturer: document.getElementById('prod-manufacturer').value,
-    supplier: document.getElementById('prod-supplier').value,
-    location: document.getElementById('prod-location').value,
-    safetyStock: parseInt(document.getElementById('prod-safety').value) || 0,
-    maxStock: parseInt(document.getElementById('prod-max').value) || 0,
-    expiryMgmt: document.getElementById('prod-expiry-mgmt').value,
-    lotMgmt: document.getElementById('prod-lot-mgmt').value,
-    insurance: document.getElementById('prod-insurance').value,
-    note: document.getElementById('prod-note').value,
+    supplier:     document.getElementById('prod-supplier').value,
+    location:     document.getElementById('prod-location').value,
+    safetyStock:  parseInt(document.getElementById('prod-safety').value) || 0,
+    maxStock:     parseInt(document.getElementById('prod-max').value)    || 0,
+    expiryMgmt:   document.getElementById('prod-expiry-mgmt').value,
+    lotMgmt:      document.getElementById('prod-lot-mgmt').value,
+    insurance:    document.getElementById('prod-insurance').value,
+    note:         document.getElementById('prod-note').value,
   };
 
-  if (editCode) {
-    const idx = products.findIndex(p => p.code === editCode);
-    if (idx >= 0) products[idx] = prod;
-  } else {
-    products.push(prod);
-  }
-  saveProducts(products);
-  closeModal('modal-product');
-  renderProductsPage();
-  initProductFilters();
+  try {
+    await dbUpsertProduct(prod);
+    await loadAllData();
+    closeModal('modal-product');
+    renderProductsPage();
+    initProductFilters();
+  } catch(e) { alert('저장 오류: ' + e.message); }
 }
 
-function deleteProduct(code) {
+async function deleteProduct(code) {
   if (!confirm(`"${code}" 품목을 삭제하시겠습니까?\n관련 거래기록은 삭제되지 않습니다.`)) return;
-  const products = getProducts().filter(p => p.code !== code);
-  saveProducts(products);
-  renderProductsPage();
-  initProductFilters();
+  try {
+    await dbDeleteProduct(code);
+    await loadAllData();
+    renderProductsPage();
+    initProductFilters();
+  } catch(e) { alert('삭제 오류: ' + e.message); }
+}
+
+// ========================================
+// REALTIME 구독
+// ========================================
+function subscribeRealtime() {
+  if (_realtimeCh) sb.removeChannel(_realtimeCh);
+  _realtimeCh = sb.channel('pharma-db')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'products',
+        filter: `user_id=eq.${_userId}` },
+      async () => { await loadAllData(); refreshCurrentTab(); initProductFilters(); initPurchaseFilters(); initSalesFilters(); initRecordFilters(); })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions',
+        filter: `user_id=eq.${_userId}` },
+      async () => { await loadAllData(); refreshCurrentTab(); initSalesFilters(); initPurchaseFilters(); initRecordFilters(); })
+    .subscribe();
 }
 
 // ========================================
@@ -1512,16 +1581,42 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
 // ========================================
 // INIT
 // ========================================
-function init() {
-  initData();
+async function initApp(user) {
+  _userId = user.id;
+  document.getElementById('header-user').textContent       = user.email;
+  document.getElementById('logout-btn').style.display      = 'inline-block';
+  showLoading(true);
+  showAuth(false);
+
+  await loadAllData();
+  if (_products.length === 0 && _transactions.length === 0) {
+    await insertSeedData();
+    await loadAllData();
+  }
+
   initPurchaseFilters();
   initSalesFilters();
   initRecordFilters();
   initProductFilters();
   renderDashboard();
+  subscribeRealtime();
+  showLoading(false);
 }
 
-init();
+sb.auth.onAuthStateChange(async (event, session) => {
+  if (session?.user) {
+    await initApp(session.user);
+  } else {
+    _userId = null;
+    _products = [];
+    _transactions = [];
+    document.getElementById('header-user').textContent  = '';
+    document.getElementById('logout-btn').style.display = 'none';
+    if (_realtimeCh) { sb.removeChannel(_realtimeCh); _realtimeCh = null; }
+    showLoading(false);
+    showAuth(true);
+  }
+});
 </script>
 </body>
 </html>
