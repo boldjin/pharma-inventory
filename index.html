@@ -190,8 +190,12 @@ select.form-control { cursor: pointer; }
 <!-- ====== 로딩 오버레이 ====== -->
 <div id="loading-overlay" style="display:flex; position:fixed; inset:0; background:rgba(255,255,255,0.95); z-index:9998; align-items:center; justify-content:center; flex-direction:column; gap:14px;">
   <div style="font-size:36px;">💊</div>
-  <div style="font-size:15px; color:var(--gray-600); font-weight:600;">데이터 로딩 중...</div>
-  <div style="font-size:12px; color:var(--gray-400);">잠시만 기다려주세요</div>
+  <div id="loading-msg" style="font-size:15px; color:var(--gray-600); font-weight:600;">데이터 로딩 중...</div>
+  <div id="loading-sub" style="font-size:12px; color:var(--gray-400);">잠시만 기다려주세요</div>
+  <div id="loading-error" style="display:none; text-align:center; margin-top:8px;">
+    <div style="font-size:13px; color:#e53e3e; margin-bottom:10px;" id="loading-error-msg"></div>
+    <button onclick="location.reload()" style="padding:8px 20px; background:var(--primary); color:#fff; border:none; border-radius:6px; font-size:14px; cursor:pointer;">다시 시도</button>
+  </div>
 </div>
 
 <!-- ====== 로그인 오버레이 ====== -->
@@ -704,12 +708,21 @@ async function loadAllData() {
     new Promise((_, reject) => setTimeout(() => reject(new Error('연결 시간 초과')), ms))
   ]);
 
-  const [{ data: prods, error: e1 }, { data: txns, error: e2 }] = await withTimeout(
-    Promise.all([
-      sb.from('products').select('*').order('code'),
-      sb.from('transactions').select('*').order('date', { ascending: false }),
-    ]), 10000
-  );
+  const attempt = () => Promise.all([
+    sb.from('products').select('*').order('code'),
+    sb.from('transactions').select('*').order('date', { ascending: false }),
+  ]);
+
+  let result;
+  try {
+    result = await withTimeout(attempt(), 30000);
+  } catch(e) {
+    // 1회 재시도
+    setLoadingMsg('서버 재연결 중...', '잠시만 기다려주세요 (최대 30초)');
+    result = await withTimeout(attempt(), 30000);
+  }
+
+  const [{ data: prods, error: e1 }, { data: txns, error: e2 }] = result;
   if (e1) throw new Error('품목 로딩 실패: ' + e1.message);
   if (e2) throw new Error('거래기록 로딩 실패: ' + e2.message);
   _products     = (prods || []).map(productFromDb);
@@ -768,7 +781,25 @@ async function insertSeedData() {
 // AUTH UI
 // ========================================
 function showLoading(show) {
-  document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none';
+  const el = document.getElementById('loading-overlay');
+  el.style.display = show ? 'flex' : 'none';
+  if (show) {
+    setLoadingMsg('데이터 로딩 중...', '잠시만 기다려주세요');
+    document.getElementById('loading-error').style.display = 'none';
+  }
+}
+function setLoadingMsg(msg, sub) {
+  const m = document.getElementById('loading-msg');
+  const s = document.getElementById('loading-sub');
+  if (m) m.textContent = msg;
+  if (s) s.textContent = sub || '';
+}
+function showLoadingError(msg) {
+  document.getElementById('loading-msg').textContent = '연결 실패';
+  document.getElementById('loading-sub').textContent = '';
+  const errEl = document.getElementById('loading-error');
+  document.getElementById('loading-error-msg').textContent = msg;
+  errEl.style.display = 'block';
 }
 function showAuth(show) {
   document.getElementById('auth-overlay').style.display = show ? 'flex' : 'none';
@@ -1560,8 +1591,12 @@ async function initApp(user) {
   showLoading(true);
   showAuth(false);
 
+  // 5초 후 메시지 변경 (슬립 상태 서버 대기 안내)
+  const wakeTimer = setTimeout(() => setLoadingMsg('서버를 깨우는 중...', '처음 접속 시 최대 30초 소요될 수 있습니다'), 5000);
+
   try {
     await loadAllData();
+    clearTimeout(wakeTimer);
     if (_products.length === 0 && _transactions.length === 0) {
       await insertSeedData();
       await loadAllData();
@@ -1572,11 +1607,11 @@ async function initApp(user) {
     initProductFilters();
     renderDashboard();
     subscribeRealtime();
-  } catch(e) {
-    console.error('initApp error', e);
-    alert('데이터 로딩 오류: ' + e.message);
-  } finally {
     showLoading(false);
+  } catch(e) {
+    clearTimeout(wakeTimer);
+    console.error('initApp error', e);
+    showLoadingError('데이터를 불러오지 못했습니다. 네트워크를 확인 후 다시 시도해주세요.');
   }
 }
 
