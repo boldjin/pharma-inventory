@@ -1583,7 +1583,7 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
 // ========================================
 async function initApp(user) {
   _userId = user.id;
-  document.getElementById('header-user').textContent       = user.email;
+  document.getElementById('header-user').textContent       = '';
   document.getElementById('logout-btn').style.display      = 'inline-block';
   showLoading(true);
   showAuth(false);
