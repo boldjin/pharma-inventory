@@ -1613,7 +1613,8 @@ async function initApp(user) {
 // 페이지 로드 시 저장된 세션 확인 → 자동 로그인
 (async () => {
   try {
-    const { data: { session } } = await sb.auth.getSession();
+    const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+    const { data: { session } } = await withTimeout(sb.auth.getSession(), 8000);
     if (session?.user) {
       await initApp(session.user);
     } else {
