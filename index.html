@@ -367,7 +367,7 @@ select.form-control { cursor: pointer; }
   <div id="loading-msg" style="font-size:15px; color:var(--text-brand); font-weight:600; letter-spacing:-0.01em;">데이터 로딩 중...</div>
   <div id="loading-sub" style="font-size:12px; color:var(--text-secondary); letter-spacing:-0.01em;">잠시만 기다려주세요</div>
   <div id="loading-error" style="display:none; text-align:center; margin-top:12px;">
-    <div style="font-size:13px; color:var(--danger); margin-bottom:14px; letter-spacing:-0.01em;" id="loading-error-msg"></div>
+    <div style="font-size:13px; color:var(--danger); margin-bottom:14px; letter-spacing:-0.01em; white-space:pre-line; max-width:340px; line-height:1.6;" id="loading-error-msg"></div>
     <button onclick="location.reload()" class="btn btn-primary">다시 시도</button>
   </div>
 </div>
@@ -1861,7 +1861,11 @@ async function initApp(user) {
     showLoading(false);
   } catch(e) {
     console.error('initApp error', e);
-    showLoadingError('데이터를 불러오지 못했습니다. 네트워크를 확인 후 다시 시도해주세요.');
+    const isTimeout = /시간 초과|timeout|TimeoutError|Failed to fetch|NetworkError/i.test(e?.message || '');
+    const msg = isTimeout
+      ? '서버 연결이 차단되었거나 너무 느립니다.\n사내망 방화벽이 원인일 수 있습니다. 모바일 핫스팟 또는 다른 네트워크에서 다시 시도해주세요.'
+      : '데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.\n' + (e?.message || '');
+    showLoadingError(msg);
   }
 }
 
