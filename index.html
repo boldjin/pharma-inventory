@@ -819,13 +819,17 @@ function applyTheme(theme) {
   if (icon) icon.textContent = theme === 'dark' ? '☀️' : '🌙';
   const meta = document.getElementById('theme-color-meta');
   if (meta) meta.setAttribute('content', theme === 'dark' ? '#0f1f1c' : '#1E3932');
-  // Chart.js 글로벌 디폴트 — 테마 변경 시 모든 차트 재렌더
-  if (window.Chart) {
-    const cs = getComputedStyle(document.documentElement);
-    Chart.defaults.color       = cs.getPropertyValue('--chart-text').trim();
-    Chart.defaults.borderColor = cs.getPropertyValue('--chart-grid').trim();
-    Chart.defaults.font.family = "Inter, SoDoSans, -apple-system, BlinkMacSystemFont, sans-serif";
-  }
+  // Chart.js 글로벌 디폴트 — 테마 변경 시 모든 차트 재렌더 (에러 시 무시)
+  try {
+    if (window.Chart && Chart.defaults) {
+      const cs = getComputedStyle(document.documentElement);
+      const txt = cs.getPropertyValue('--chart-text').trim();
+      const grd = cs.getPropertyValue('--chart-grid').trim();
+      if (txt) Chart.defaults.color       = txt;
+      if (grd) Chart.defaults.borderColor = grd;
+      if (Chart.defaults.font) Chart.defaults.font.family = "Inter, SoDoSans, -apple-system, BlinkMacSystemFont, sans-serif";
+    }
+  } catch(e) { console.warn('chart defaults set failed:', e); }
   // 이미 그려진 차트 갱신
   if (window._charts) {
     Object.values(window._charts).forEach(ch => { if (ch && ch.update) ch.update('none'); });
