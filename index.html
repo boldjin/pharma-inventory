@@ -1106,8 +1106,8 @@ function destroyChart(key) {
   if (charts[key]) { charts[key].destroy(); delete charts[key]; }
 }
 // ── Starbucks 차트 팔레트 ─────────────────────────────────────────────────
-// Green Accent → Gold → House Green → Refresher Red → Sage → Caramel → Espresso → ...
-const COLORS = ['#00754A','#cba258','#1E3932','#c82014','#5b9ea0','#a16207','#7c2d12','#dfc49d','#2b5148','#d4e9e2'];
+// 가시성 최적화 순서: Green Accent → Gold → Sage Teal → Refresher Red → Caramel → Espresso → Gold Light → Uplift → Green Light → House
+const COLORS = ['#00754A','#cba258','#5b9ea0','#c82014','#a16207','#7c2d12','#dfc49d','#2b5148','#d4e9e2','#1E3932'];
 
 // 품목명을 family 단위로 정규화 — "M-CLOT(10*10)", "M-CLOT(20*10)" 같은 변형은 같은 family로 묶임
 function productFamily(name) {
@@ -1395,7 +1395,7 @@ function renderPurchase() {
       labels: filtMonths.map(m=>{ const [,mo]=m.split('-'); return `${parseInt(mo)}월`; }),
       datasets: [
         { label: '매입금액', data: purMonthData.map(d=>d.amt), backgroundColor: 'rgba(203, 162, 88, 0.45)', borderColor: '#cba258', borderWidth: 2, borderRadius: 4, yAxisID: 'y', order: 2 },
-        { label: '매입수량', data: purMonthData.map(d=>d.qty), type: 'line', borderColor: '#1E3932', backgroundColor: '#1E3932', pointRadius: 4, tension: 0.3, yAxisID: 'y1', order: 1 },
+        { label: '매입수량', data: purMonthData.map(d=>d.qty), type: 'line', borderColor: '#006241', backgroundColor: '#006241', borderWidth: 2.5, pointRadius: 4, pointBackgroundColor: '#006241', tension: 0.3, yAxisID: 'y1', order: 1 },
       ]
     },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } },
