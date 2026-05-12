@@ -2,7 +2,7 @@ name: 일일 재고 리포트 이메일 발송
 
 on:
   schedule:
-    - cron: '0 1 * * *'   # 매일 01:00 UTC = 한국시간 10:00 KST
+    - cron: '0 0 * * *'   # 매일 00:00 UTC = 한국시간 09:00 KST
   workflow_dispatch:        # 수동 테스트용
 
 jobs:
@@ -28,4 +28,4 @@ jobs:
           SMTP_PORT:             ${{ secrets.SMTP_PORT }}
           SMTP_USER:             ${{ secrets.SMTP_USER }}
           SMTP_PASS:             ${{ secrets.SMTP_PASS }}
-          RECIPIENT:             forzaackj@naver.com
+          RECIPIENT:             forzaackj@naver.com,rod.koc.2025@gmail.com
