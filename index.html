@@ -1162,8 +1162,8 @@ function renderPurchase() {
     data: {
       labels: filtMonths.map(m=>{ const [,mo]=m.split('-'); return `${parseInt(mo)}월`; }),
       datasets: [
-        { label: '매입금액', data: purMonthData.map(d=>d.amt), backgroundColor: '#fde68a', borderColor: '#f59e0b', borderWidth: 2, borderRadius: 4, yAxisID: 'y' },
-        { label: '매입수량', data: purMonthData.map(d=>d.qty), type: 'line', borderColor: '#3b82f6', pointRadius: 4, tension: 0.3, yAxisID: 'y1' },
+        { label: '매입금액', data: purMonthData.map(d=>d.amt), backgroundColor: 'rgba(253, 230, 138, 0.55)', borderColor: '#f59e0b', borderWidth: 2, borderRadius: 4, yAxisID: 'y', order: 2 },
+        { label: '매입수량', data: purMonthData.map(d=>d.qty), type: 'line', borderColor: '#3b82f6', backgroundColor: '#3b82f6', pointRadius: 4, tension: 0.3, yAxisID: 'y1', order: 1 },
       ]
     },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } },
