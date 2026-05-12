@@ -995,8 +995,8 @@ function renderDashboard() {
     data: {
       labels: months.map(m => { const [,mo]=m.split('-'); return `${parseInt(mo)}월`; }),
       datasets: [
-        { label: '매입', data: purByMonth, borderColor: '#f59e0b', backgroundColor: '#fef3c7', tension: 0.3, fill: true, pointRadius: 4 },
-        { label: '매출', data: salByMonth, borderColor: '#10b981', backgroundColor: '#dcfce7', tension: 0.3, fill: true, pointRadius: 4 },
+        { label: '매입', data: purByMonth, borderColor: '#f59e0b', backgroundColor: 'rgba(254, 243, 199, 0.5)', tension: 0.3, fill: true, pointRadius: 4, borderWidth: 2 },
+        { label: '매출', data: salByMonth, borderColor: '#10b981', backgroundColor: 'rgba(220, 252, 231, 0.5)', tension: 0.3, fill: true, pointRadius: 4, borderWidth: 2 },
       ]
     },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { ticks: { callback: v => fmtNum(v) } } } }
@@ -1010,8 +1010,8 @@ function renderDashboard() {
     data: {
       labels: products.map(p => p.name),
       datasets: [
-        { label: '현재재고', data: stockData, backgroundColor: stockData.map((s,i)=>s<safetyData[i]?'#fca5a5':s<safetyData[i]*1.5?'#fcd34d':'#86efac'), borderRadius: 4 },
-        { label: '안전재고', data: safetyData, backgroundColor: 'transparent', borderColor: '#64748b', borderWidth: 2, type: 'line', pointRadius: 0 },
+        { label: '현재재고', data: stockData, backgroundColor: stockData.map((s,i)=>s<safetyData[i]?'rgba(252,165,165,0.6)':s<safetyData[i]*1.5?'rgba(252,211,77,0.6)':'rgba(134,239,172,0.6)'), borderColor: stockData.map((s,i)=>s<safetyData[i]?'#ef4444':s<safetyData[i]*1.5?'#f59e0b':'#16a34a'), borderWidth: 2, borderRadius: 4, order: 2 },
+        { label: '안전재고', data: safetyData, backgroundColor: 'transparent', borderColor: '#1e293b', borderWidth: 2.5, type: 'line', pointRadius: 3, pointBackgroundColor: '#1e293b', order: 1 },
       ]
     },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
@@ -1253,8 +1253,8 @@ function renderSales() {
     data: {
       labels: allMonths.map(m=>{ const [,mo]=m.split('-'); return `${parseInt(mo)}월`; }),
       datasets: [
-        { label: '매출금액', data: salMonthData.map(d=>d.amt), borderColor: '#10b981', backgroundColor: '#d1fae5', tension: 0.3, fill: true, pointRadius: 4 },
-        { label: '매출수량', data: salMonthData.map(d=>d.qty), borderColor: '#3b82f6', borderDash: [5,5], tension: 0.3, pointRadius: 3, yAxisID: 'y1' },
+        { label: '매출금액', data: salMonthData.map(d=>d.amt), borderColor: '#10b981', backgroundColor: 'rgba(209, 250, 229, 0.5)', tension: 0.3, fill: true, pointRadius: 4, borderWidth: 2, order: 2 },
+        { label: '매출수량', data: salMonthData.map(d=>d.qty), borderColor: '#3b82f6', borderDash: [5,5], borderWidth: 2.5, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#3b82f6', yAxisID: 'y1', order: 1 },
       ]
     },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } },
