@@ -15,6 +15,52 @@ function daysUntil(dateStr) {
   return Math.floor((target - now) / (1000 * 60 * 60 * 24));
 }
 
+// ── 한국 공휴일 (대체공휴일 포함) ─────────────────────────────────────────
+// 매년 1월에 갱신 필요 — 음력 공휴일과 대체공휴일은 해마다 날짜가 바뀜
+const KR_HOLIDAYS = new Set([
+  // 2026
+  '2026-01-01', // 신정
+  '2026-02-16', '2026-02-17', '2026-02-18', // 설날 연휴
+  '2026-03-01', '2026-03-02', // 삼일절 + 대체
+  '2026-05-05', // 어린이날
+  '2026-05-24', '2026-05-25', // 부처님오신날 + 대체
+  '2026-06-06', // 현충일
+  '2026-08-15', '2026-08-17', // 광복절 + 대체
+  '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-28', // 추석 연휴 + 대체
+  '2026-10-03', '2026-10-05', // 개천절 + 대체
+  '2026-10-09', // 한글날
+  '2026-12-25', // 크리스마스
+  // 2027
+  '2027-01-01',
+  '2027-02-06', '2027-02-07', '2027-02-08', '2027-02-09', // 설날 + 대체
+  '2027-03-01',
+  '2027-05-05',
+  '2027-05-13',
+  '2027-06-07', // 현충일 대체 (6/6 일요일)
+  '2027-08-16', // 광복절 대체 (8/15 일요일)
+  '2027-09-14', '2027-09-15', '2027-09-16',
+  '2027-10-04', // 개천절 대체
+  '2027-10-11', // 한글날 대체
+  '2027-12-27', // 크리스마스 대체
+]);
+
+function todayKSTDate() {
+  // YYYY-MM-DD 형태 (KST 기준)
+  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
+  return fmt.format(new Date());
+}
+function todayKSTDayOfWeek() {
+  // KST 기준 요일: 0=일, 6=토
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Seoul', weekday: 'short' }).format(new Date());
+  return { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 }[parts];
+}
+function shouldSkipToday() {
+  const dow = todayKSTDayOfWeek();
+  if (dow === 0 || dow === 6) return { skip: true, reason: '주말' };
+  if (KR_HOLIDAYS.has(todayKSTDate())) return { skip: true, reason: '공휴일' };
+  return { skip: false };
+}
+
 // ── 집계 ──────────────────────────────────────────────────────────────────
 function calcStock(products, transactions) {
   const stockMap = {};
@@ -100,9 +146,18 @@ function buildSheet(title, headers, rows, widths) {
 
 // ── 메인 ───────────────────────────────────────────────────────────────────
 async function main() {
-  const { SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_USER_ID, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, RECIPIENT } = process.env;
+  const { SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_USER_ID, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, RECIPIENT, FORCE_SEND } = process.env;
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY || !SUPABASE_USER_ID) {
     throw new Error('Supabase 환경변수가 설정되지 않았습니다.');
+  }
+
+  // 주말/공휴일 발송 제외 (FORCE_SEND=1 이면 우회)
+  if (FORCE_SEND !== '1') {
+    const { skip, reason } = shouldSkipToday();
+    if (skip) {
+      console.log(`⏭️  ${todayKSTDate()} (${reason}) — 발송 생략`);
+      return;
+    }
   }
 
   // 1. DB 조회
