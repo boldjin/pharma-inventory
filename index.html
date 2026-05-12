@@ -74,16 +74,16 @@ if (!!window.MSInputMethodContext && !!document.documentMode) {
 }
 
 [data-theme="dark"] {
-  --bg-canvas:        #0f1f1c;
-  --bg-card:          #1E3932;
-  --bg-soft:          #2b5148;
-  --bg-feature:       #0a1614;
-  --bg-table-head:    #2b5148;
-  --bg-tint-primary:  rgba(212,233,226,0.10);
+  --bg-canvas:        #2a3f3a;
+  --bg-card:          #34504a;
+  --bg-soft:          #3f5d56;
+  --bg-feature:       #1E3932;
+  --bg-table-head:    #3f5d56;
+  --bg-tint-primary:  rgba(212,233,226,0.14);
 
-  --text-primary:     rgba(255,255,255,0.95);
-  --text-secondary:   rgba(255,255,255,0.70);
-  --text-muted:       rgba(255,255,255,0.45);
+  --text-primary:     #ffffff;
+  --text-secondary:   rgba(255,255,255,0.78);
+  --text-muted:       rgba(255,255,255,0.55);
   --text-on-dark:     #ffffff;
   --text-on-dark-soft:rgba(255,255,255,0.70);
   --text-brand:       #d4e9e2;
@@ -407,7 +407,7 @@ select.form-control { cursor: pointer; }
   <div style="margin-left:auto; display:flex; align-items:center; gap:10px;">
     <span id="header-user" style="font-size:12px; color:var(--sb-green-light);"></span>
     <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" aria-label="테마 전환" title="라이트/다크 모드 전환">
-      <span id="theme-icon">🌙</span>
+      <span id="theme-icon">☀️</span>
     </button>
     <button id="logout-btn" onclick="doLogout()"
       style="display:none; padding:7px 16px; background:transparent; color:#ffffff; border:1px solid rgba(255,255,255,0.4); border-radius:50px; font-size:12px; cursor:pointer; font-weight:600; letter-spacing:-0.01em; transition:all 0.2s ease;"
@@ -817,7 +817,8 @@ function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   try { localStorage.setItem('pharma-theme', theme); } catch(e) {}
   const icon = document.getElementById('theme-icon');
-  if (icon) icon.textContent = theme === 'dark' ? '☀️' : '🌙';
+  // 현재 모드 표시: 다크일 땐 달, 라이트일 땐 해 — 클릭 시 토글
+  if (icon) icon.textContent = theme === 'dark' ? '🌙' : '☀️';
   const meta = document.getElementById('theme-color-meta');
   if (meta) meta.setAttribute('content', theme === 'dark' ? '#0f1f1c' : '#1E3932');
   // Chart.js 글로벌 디폴트 — 테마 변경 시 모든 차트 재렌더 (에러 시 무시)
@@ -1108,6 +1109,8 @@ function destroyChart(key) {
 // ── Starbucks 차트 팔레트 ─────────────────────────────────────────────────
 // 가시성 최적화 순서: Green Accent → Gold → Sage Teal → Refresher Red → Caramel → Espresso → Gold Light → Uplift → Green Light → House
 const COLORS = ['#00754A','#cba258','#5b9ea0','#c82014','#a16207','#7c2d12','#dfc49d','#2b5148','#d4e9e2','#1E3932'];
+// 병원/거래처용 — 인접 색상 대비 극대화 (Green → Red → Gold → Teal → Brown → ...)
+const HOSPITAL_COLORS = ['#00754A','#c82014','#cba258','#5b9ea0','#7c2d12','#2b5148','#a16207','#1E3932','#dfc49d','#d4e9e2'];
 
 // 품목명을 family 단위로 정규화 — "M-CLOT(10*10)", "M-CLOT(20*10)" 같은 변형은 같은 family로 묶임
 function productFamily(name) {
@@ -1502,7 +1505,7 @@ function renderSales() {
   destroyChart('sal-hosp');
   charts['sal-hosp'] = new Chart(document.getElementById('chart-sal-hosp').getContext('2d'), {
     type: 'doughnut',
-    data: { labels: Object.keys(byHosp), datasets: [{ data: Object.values(byHosp), backgroundColor: COLORS.slice(0, Object.keys(byHosp).length), borderColor: 'var(--bg-card)', borderWidth: 2 }] },
+    data: { labels: Object.keys(byHosp), datasets: [{ data: Object.values(byHosp), backgroundColor: HOSPITAL_COLORS.slice(0, Object.keys(byHosp).length), borderColor: 'var(--bg-card)', borderWidth: 2 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
   });
 
