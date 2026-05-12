@@ -1100,7 +1100,33 @@ window._charts = charts;
 function destroyChart(key) {
   if (charts[key]) { charts[key].destroy(); delete charts[key]; }
 }
-const COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#84cc16','#f97316'];
+// ── Starbucks 차트 팔레트 ─────────────────────────────────────────────────
+// Green Accent → Gold → House Green → Refresher Red → Sage → Caramel → Espresso → ...
+const COLORS = ['#00754A','#cba258','#1E3932','#c82014','#5b9ea0','#a16207','#7c2d12','#dfc49d','#2b5148','#d4e9e2'];
+
+// 품목명을 family 단위로 정규화 — "M-CLOT(10*10)", "M-CLOT(20*10)" 같은 변형은 같은 family로 묶임
+function productFamily(name) {
+  if (!name) return '';
+  return String(name)
+    .replace(/\s*\([^)]+\)\s*$/, '')                          // (10*10) 같은 괄호 suffix 제거
+    .replace(/\s+\d+(\.\d+)?\s*\*\s*\d+(\.\d+)?\s*$/, '')     // " 10*10" 같은 변형
+    .replace(/\s+\d+(\.\d+)?(mg|g|ml|cm|kg|mm|cc|L|x|EA)?\s*$/i, '') // " 50mg" 등
+    .trim();
+}
+
+// 라벨 배열을 받아 같은 family는 같은 색을 갖도록 매핑
+function colorsByFamily(labels) {
+  const map = {};
+  let idx = 0;
+  return labels.map(lbl => {
+    const fam = productFamily(lbl);
+    if (!(fam in map)) {
+      map[fam] = COLORS[idx % COLORS.length];
+      idx++;
+    }
+    return map[fam];
+  });
+}
 
 // ========================================
 // NAV TAB
@@ -1196,8 +1222,8 @@ function renderDashboard() {
     data: {
       labels: months.map(m => { const [,mo]=m.split('-'); return `${parseInt(mo)}월`; }),
       datasets: [
-        { label: '매입', data: purByMonth, borderColor: '#f59e0b', backgroundColor: 'rgba(254, 243, 199, 0.5)', tension: 0.3, fill: true, pointRadius: 4, borderWidth: 2 },
-        { label: '매출', data: salByMonth, borderColor: '#10b981', backgroundColor: 'rgba(220, 252, 231, 0.5)', tension: 0.3, fill: true, pointRadius: 4, borderWidth: 2 },
+        { label: '매입', data: purByMonth, borderColor: '#cba258', backgroundColor: 'rgba(203, 162, 88, 0.22)', tension: 0.3, fill: true, pointRadius: 4, borderWidth: 2, pointBackgroundColor: '#cba258' },
+        { label: '매출', data: salByMonth, borderColor: '#00754A', backgroundColor: 'rgba(0, 117, 74, 0.18)', tension: 0.3, fill: true, pointRadius: 4, borderWidth: 2, pointBackgroundColor: '#00754A' },
       ]
     },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { ticks: { callback: v => fmtNum(v) } } } }
@@ -1211,8 +1237,8 @@ function renderDashboard() {
     data: {
       labels: products.map(p => p.name),
       datasets: [
-        { label: '현재재고', data: stockData, backgroundColor: stockData.map((s,i)=>s<safetyData[i]?'rgba(252,165,165,0.6)':s<safetyData[i]*1.5?'rgba(252,211,77,0.6)':'rgba(134,239,172,0.6)'), borderColor: stockData.map((s,i)=>s<safetyData[i]?'#ef4444':s<safetyData[i]*1.5?'#f59e0b':'#16a34a'), borderWidth: 2, borderRadius: 4, order: 2 },
-        { label: '안전재고', data: safetyData, backgroundColor: 'transparent', borderColor: '#1e293b', borderWidth: 2.5, type: 'line', pointRadius: 3, pointBackgroundColor: '#1e293b', order: 1 },
+        { label: '현재재고', data: stockData, backgroundColor: stockData.map((s,i)=>s<safetyData[i]?'rgba(200,32,20,0.50)':s<safetyData[i]*1.5?'rgba(203,162,88,0.55)':'rgba(0,117,74,0.50)'), borderColor: stockData.map((s,i)=>s<safetyData[i]?'#c82014':s<safetyData[i]*1.5?'#cba258':'#00754A'), borderWidth: 2, borderRadius: 4, order: 2 },
+        { label: '안전재고', data: safetyData, backgroundColor: 'transparent', borderColor: '#1E3932', borderWidth: 2.5, type: 'line', pointRadius: 3, pointBackgroundColor: '#1E3932', order: 1 },
       ]
     },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
@@ -1363,8 +1389,8 @@ function renderPurchase() {
     data: {
       labels: filtMonths.map(m=>{ const [,mo]=m.split('-'); return `${parseInt(mo)}월`; }),
       datasets: [
-        { label: '매입금액', data: purMonthData.map(d=>d.amt), backgroundColor: 'rgba(253, 230, 138, 0.55)', borderColor: '#f59e0b', borderWidth: 2, borderRadius: 4, yAxisID: 'y', order: 2 },
-        { label: '매입수량', data: purMonthData.map(d=>d.qty), type: 'line', borderColor: '#3b82f6', backgroundColor: '#3b82f6', pointRadius: 4, tension: 0.3, yAxisID: 'y1', order: 1 },
+        { label: '매입금액', data: purMonthData.map(d=>d.amt), backgroundColor: 'rgba(203, 162, 88, 0.45)', borderColor: '#cba258', borderWidth: 2, borderRadius: 4, yAxisID: 'y', order: 2 },
+        { label: '매입수량', data: purMonthData.map(d=>d.qty), type: 'line', borderColor: '#1E3932', backgroundColor: '#1E3932', pointRadius: 4, tension: 0.3, yAxisID: 'y1', order: 1 },
       ]
     },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } },
@@ -1376,7 +1402,7 @@ function renderPurchase() {
   destroyChart('pur-pie');
   charts['pur-pie'] = new Chart(document.getElementById('chart-pur-pie').getContext('2d'), {
     type: 'doughnut',
-    data: { labels: Object.keys(byProd), datasets: [{ data: Object.values(byProd), backgroundColor: COLORS.slice(0, Object.keys(byProd).length) }] },
+    data: { labels: Object.keys(byProd), datasets: [{ data: Object.values(byProd), backgroundColor: colorsByFamily(Object.keys(byProd)), borderColor: 'var(--bg-card)', borderWidth: 2 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
   });
 
@@ -1454,8 +1480,8 @@ function renderSales() {
     data: {
       labels: allMonths.map(m=>{ const [,mo]=m.split('-'); return `${parseInt(mo)}월`; }),
       datasets: [
-        { label: '매출금액', data: salMonthData.map(d=>d.amt), borderColor: '#10b981', backgroundColor: 'rgba(209, 250, 229, 0.5)', tension: 0.3, fill: true, pointRadius: 4, borderWidth: 2, order: 2 },
-        { label: '매출수량', data: salMonthData.map(d=>d.qty), borderColor: '#3b82f6', borderDash: [5,5], borderWidth: 2.5, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#3b82f6', yAxisID: 'y1', order: 1 },
+        { label: '매출금액', data: salMonthData.map(d=>d.amt), borderColor: '#00754A', backgroundColor: 'rgba(0, 117, 74, 0.18)', tension: 0.3, fill: true, pointRadius: 4, borderWidth: 2, pointBackgroundColor: '#00754A', order: 2 },
+        { label: '매출수량', data: salMonthData.map(d=>d.qty), borderColor: '#cba258', borderDash: [5,5], borderWidth: 2.5, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#cba258', yAxisID: 'y1', order: 1 },
       ]
     },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } },
@@ -1471,7 +1497,7 @@ function renderSales() {
   destroyChart('sal-hosp');
   charts['sal-hosp'] = new Chart(document.getElementById('chart-sal-hosp').getContext('2d'), {
     type: 'doughnut',
-    data: { labels: Object.keys(byHosp), datasets: [{ data: Object.values(byHosp), backgroundColor: COLORS.slice(0, Object.keys(byHosp).length) }] },
+    data: { labels: Object.keys(byHosp), datasets: [{ data: Object.values(byHosp), backgroundColor: COLORS.slice(0, Object.keys(byHosp).length), borderColor: 'var(--bg-card)', borderWidth: 2 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
   });
 
