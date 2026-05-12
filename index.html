@@ -1242,8 +1242,8 @@ function renderDashboard() {
     data: {
       labels: products.map(p => p.name),
       datasets: [
-        { label: '현재재고', data: stockData, backgroundColor: stockData.map((s,i)=>s<safetyData[i]?'rgba(200,32,20,0.50)':s<safetyData[i]*1.5?'rgba(203,162,88,0.55)':'rgba(0,117,74,0.50)'), borderColor: stockData.map((s,i)=>s<safetyData[i]?'#c82014':s<safetyData[i]*1.5?'#cba258':'#00754A'), borderWidth: 2, borderRadius: 4, order: 2 },
-        { label: '안전재고', data: safetyData, backgroundColor: 'transparent', borderColor: '#1E3932', borderWidth: 2.5, type: 'line', pointRadius: 3, pointBackgroundColor: '#1E3932', order: 1 },
+        { label: '현재재고', data: stockData, backgroundColor: 'rgba(0,117,74,0.55)', borderColor: '#00754A', borderWidth: 2, borderRadius: 4, order: 2 },
+        { label: '안전재고', data: safetyData, backgroundColor: 'transparent', borderColor: '#cba258', borderWidth: 2.5, type: 'line', pointRadius: 4, pointBackgroundColor: '#cba258', pointBorderColor: '#fff', pointBorderWidth: 1.5, tension: 0, order: 1 },
       ]
     },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
