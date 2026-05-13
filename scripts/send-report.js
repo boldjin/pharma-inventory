@@ -302,7 +302,7 @@ async function main() {
     ['', '●정상', '잔여일수 > 90일'],
     [],
     ['■ 자동 발송'],
-    ['', '매일 오전 9시', `${process.env.RECIPIENT || ''} 외 등록된 이메일로 자동 발송됩니다.`],
+    ['', '매일 오전 9시 15분', `${process.env.RECIPIENT || ''} 외 등록된 이메일로 자동 발송됩니다.`],
   ];
   const ws5 = XLSX.utils.aoa_to_sheet(guideAoa);
   ws5['!cols'] = [{ wch: 4 }, { wch: 16 }, { wch: 60 }];
