@@ -2,7 +2,8 @@ name: 일일 재고 리포트 이메일 발송
 
 on:
   schedule:
-    - cron: '0 0 * * 1-5'  # 평일 00:00 UTC = 한국시간 09:00 KST (월~금)
+    # GitHub Actions는 정각(:00)에 부하 집중으로 지연/스킵되는 경우가 많아 :15로 설정
+    - cron: '15 0 * * 1-5'  # 평일 00:15 UTC = 한국시간 09:15 KST (월~금)
   workflow_dispatch:        # 수동 테스트용
 
 jobs:
