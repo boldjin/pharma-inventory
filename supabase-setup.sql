@@ -57,3 +57,14 @@ create policy "owner_transactions" on public.transactions
 -- 5. Realtime 활성화
 alter publication supabase_realtime add table public.products;
 alter publication supabase_realtime add table public.transactions;
+
+-- 6. 일일 메일 발송 로그 (중복 발송 방지)
+create table if not exists public.daily_email_log (
+  date         text primary key,        -- 'YYYY-MM-DD' (KST 기준)
+  sent_at      timestamptz default now(),
+  recipients   text default ''
+);
+-- service_role 키로만 접근 (RLS 없이도 anon key는 차단됨)
+alter table public.daily_email_log enable row level security;
+create policy "service_role_only" on public.daily_email_log
+  for all using (false) with check (false);  -- anon/authenticated 모두 차단, service_role은 RLS 우회

@@ -197,8 +197,23 @@ async function main() {
     }
   }
 
-  // 1. DB 조회
+  // 1. DB 조회 + 오늘 이미 발송됐는지 확인
   const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  const todayKey = todayKSTDate();
+
+  // 중복 발송 방지 — daily_email_log 테이블 조회 (테이블 없거나 미발송이면 진행)
+  if (FORCE_SEND !== '1') {
+    try {
+      const { data: existing } = await sb.from('daily_email_log').select('date').eq('date', todayKey).maybeSingle();
+      if (existing) {
+        console.log(`⏭️  ${todayKey} 이미 발송됨 — 스킵 (중복 방지)`);
+        return;
+      }
+    } catch (e) {
+      console.warn('daily_email_log 조회 실패 (테이블 없을 수 있음, 발송은 진행):', e?.message || e);
+    }
+  }
+
   const [{ data: products, error: e1 }, { data: transactions, error: e2 }] = await Promise.all([
     sb.from('products').select('*').eq('user_id', SUPABASE_USER_ID).order('code'),
     sb.from('transactions').select('*').eq('user_id', SUPABASE_USER_ID).order('date', { ascending: false }),
@@ -355,6 +370,17 @@ async function main() {
   });
 
   console.log(`✅ 리포트 발송 완료: ${today} → ${recipients.join(', ')}`);
+
+  // 발송 기록 저장 (중복 발송 방지용) — 테이블 없으면 조용히 무시
+  try {
+    await sb.from('daily_email_log').upsert({
+      date: todayKey,
+      sent_at: new Date().toISOString(),
+      recipients: recipients.join(','),
+    }, { onConflict: 'date' });
+  } catch (e) {
+    console.warn('daily_email_log 기록 실패 (메일은 발송됨):', e?.message || e);
+  }
 }
 
 main().catch(err => {
