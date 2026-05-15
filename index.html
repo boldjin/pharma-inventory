@@ -850,7 +850,13 @@ function toggleTheme() {
 const SUPABASE_URL  = 'https://kgtillnfoycozkmfqwum.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtndGlsbG5mb3ljb3prbWZxd3VtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0OTg3MTQsImV4cCI6MjA5NDA3NDcxNH0.OKNmX-QcxMWHGWM4AZ_1Fz-6UvbxPLNGvRItx997wWE';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
-  auth: { persistSession: true, storageKey: 'pharma-auth' }
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,
+    storage: window.localStorage,
+    storageKey: 'pharma-auth',
+  }
 });
 
 // ========================================
@@ -1912,11 +1918,28 @@ async function initApp(user) {
   }
 }
 
-// 페이지 로드 시 저장된 세션 확인 → 자동 로그인
+// 페이지 로드 시 저장된 세션 확인 → 자동 로그인 (캐시 우선 전략)
 (async () => {
+  // 1) localStorage 캐시 즉시 확인 — 있으면 네트워크 대기 없이 바로 로그인 상태로 진입
+  try {
+    const raw = window.localStorage.getItem('pharma-auth');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const cachedUser = parsed?.user || parsed?.currentSession?.user || parsed?.data?.session?.user;
+      if (cachedUser?.id) {
+        // 즉시 init — Supabase가 백그라운드로 토큰 갱신 처리
+        initApp(cachedUser);
+        // getSession은 백그라운드로만 호출 (실패해도 무시)
+        sb.auth.getSession().catch(() => {});
+        return;
+      }
+    }
+  } catch(_) { /* 캐시 파싱 실패 — 아래 fallback으로 진행 */ }
+
+  // 2) 캐시 없으면 정식 getSession (15초 타임아웃)
   try {
     const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
-    const { data: { session } } = await withTimeout(sb.auth.getSession(), 8000);
+    const { data: { session } } = await withTimeout(sb.auth.getSession(), 15000);
     if (session?.user) {
       await initApp(session.user);
     } else {
@@ -1924,6 +1947,7 @@ async function initApp(user) {
       showAuth(true);
     }
   } catch(e) {
+    console.warn('getSession 실패:', e?.message || e);
     showLoading(false);
     showAuth(true);
   }
