@@ -712,7 +712,7 @@ select.form-control { cursor: pointer; }
           <thead><tr>
             <th>일자</th><th>병원명</th><th>품목코드</th><th>품목명</th>
             <th class="td-right">납품수량</th><th class="td-right">납품가</th><th class="td-right">매출액</th>
-            <th class="td-right">개당정산</th><th class="td-right">마진률</th>
+            <th class="td-right">개당정산</th><th class="td-right">정산 마진</th>
             <th>담당자</th><th class="td-right">정산금액</th><th>구분</th><th>비고</th>
             <th class="td-center">관리</th>
           </tr></thead>
@@ -977,7 +977,7 @@ select.form-control { cursor: pointer; }
     </div>
     <input type="hidden" id="set-id">
     <div style="background:var(--bg-soft); padding:12px 14px; border-radius:8px; font-size:12px; color:var(--text-secondary); margin-bottom:14px; letter-spacing:-0.01em; line-height:1.5;">
-      💡 <strong>월/품목/병원/수량</strong> 4가지만 선택하면 매출현황에서 자동으로 단가·금액·마진률을 가져옵니다.<br>
+      💡 <strong>월/품목/병원/수량</strong> 4가지만 선택하면 매출현황에서 자동으로 단가·금액·정산 마진을 가져옵니다.<br>
       💡 <strong>개당 정산금액</strong>은 같은 품목의 이전 정산 기록을 자동 적용 (없으면 직접 입력).
     </div>
     <div class="form-grid">
@@ -1034,7 +1034,7 @@ select.form-control { cursor: pointer; }
         <input type="number" id="set-f-settle" class="form-control" oninput="onSetSettleEdit()">
       </div>
       <div class="form-group">
-        <label class="form-label">마진률 (%)</label>
+        <label class="form-label">정산 마진 (%)</label>
         <input type="number" id="set-f-margin" class="form-control" step="0.01" placeholder="자동 계산" style="background:var(--bg-soft)">
       </div>
       <!-- hidden 호환용 -->
@@ -2691,7 +2691,7 @@ function renderSettleDash() {
     <div class="kpi-card"><div class="kpi-label">총 매출액</div><div class="kpi-value">${fmtNum(sumAmt)}원</div><div class="kpi-sub">${rows.length}건</div></div>
     <div class="kpi-card green"><div class="kpi-label">총 정산금액</div><div class="kpi-value">${fmtNum(sumSet)}원</div><div class="kpi-sub">담당자 ${mgrCnt}명</div></div>
     <div class="kpi-card orange"><div class="kpi-label">세후 정산액 합계</div><div class="kpi-value">${fmtNum(sumNet)}원</div><div class="kpi-sub">프리랜서 원천징수 3.3% 차감 반영</div></div>
-    <div class="kpi-card red"><div class="kpi-label">평균 마진률</div><div class="kpi-value">${rows.length? (rows.reduce((a,s)=>a+s.marginRate,0)/rows.length*100).toFixed(1):0}%</div><div class="kpi-sub">조건 일치 평균</div></div>`;
+    <div class="kpi-card red"><div class="kpi-label">평균 정산 마진</div><div class="kpi-value">${rows.length? (rows.reduce((a,s)=>a+s.marginRate,0)/rows.length*100).toFixed(1):0}%</div><div class="kpi-sub">조건 일치 평균</div></div>`;
 
   // 담당자별 정산금액 차트
   const byMgr = {};
