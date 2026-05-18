@@ -763,7 +763,7 @@ select.form-control { cursor: pointer; }
           <thead><tr>
             <th>일자</th><th>담당자</th><th>병원</th><th>품목</th>
             <th class="td-right">수량</th><th class="td-right">매출액</th>
-            <th class="td-right">정산금액</th><th class="td-right">실수령액</th>
+            <th class="td-right">정산금액</th><th class="td-right">세후 정산액</th>
           </tr></thead>
           <tbody id="sd-tbody"></tbody>
         </table>
@@ -2272,7 +2272,7 @@ function renderSettlement() {
     <div class="summary-item">건수: <strong>${rows.length}건</strong></div>
     <div class="summary-item">매출액 합계: <strong>${fmtNum(sumAmount)}원</strong></div>
     <div class="summary-item">정산금액 합계: <strong>${fmtNum(sumSettle)}원</strong></div>
-    <div class="summary-item">실수령액 합계: <strong>${fmtNum(sumNet)}원</strong> (프리랜서 3.3% 차감 반영)</div>`;
+    <div class="summary-item">세후 정산액 합계: <strong>${fmtNum(sumNet)}원</strong> (프리랜서 원천징수 3.3% 차감 반영)</div>`;
 
   document.getElementById('set-tbody').innerHTML = rows.map(s => `
     <tr>
@@ -2436,7 +2436,7 @@ function renderSettleDash() {
   document.getElementById('sd-kpis').innerHTML = `
     <div class="kpi-card"><div class="kpi-label">총 매출액</div><div class="kpi-value">${fmtNum(sumAmt)}원</div><div class="kpi-sub">${rows.length}건</div></div>
     <div class="kpi-card green"><div class="kpi-label">총 정산금액</div><div class="kpi-value">${fmtNum(sumSet)}원</div><div class="kpi-sub">담당자 ${mgrCnt}명</div></div>
-    <div class="kpi-card orange"><div class="kpi-label">실수령액 합계</div><div class="kpi-value">${fmtNum(sumNet)}원</div><div class="kpi-sub">프리랜서 3.3% 차감 반영</div></div>
+    <div class="kpi-card orange"><div class="kpi-label">세후 정산액 합계</div><div class="kpi-value">${fmtNum(sumNet)}원</div><div class="kpi-sub">프리랜서 원천징수 3.3% 차감 반영</div></div>
     <div class="kpi-card red"><div class="kpi-label">평균 마진률</div><div class="kpi-value">${rows.length? (rows.reduce((a,s)=>a+s.marginRate,0)/rows.length*100).toFixed(1):0}%</div><div class="kpi-sub">조건 일치 평균</div></div>`;
 
   // 담당자별 정산금액 차트
