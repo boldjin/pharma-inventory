@@ -2420,7 +2420,6 @@ function onSetMonthChange() {
   const month = document.getElementById('set-f-month').value;
   const ps = document.getElementById('set-f-product');
   const hs = document.getElementById('set-f-hospital-sel');
-  console.log('[onSetMonthChange] month=', month, 'all tx=', _transactions.length);
   if (!month) {
     ps.innerHTML = '<option value="">월 선택 후 자동 표시</option>';
     hs.innerHTML = '<option value="">품목 선택 후 자동 표시</option>';
@@ -2428,7 +2427,6 @@ function onSetMonthChange() {
   }
   // 해당 월에 매출이 있는 품목만
   const sales = salesInMonth(month);
-  console.log('[onSetMonthChange] sales in month=', sales.length, sales);
   const codes = [...new Set(sales.map(s => s.productCode).filter(Boolean))].sort();
   if (codes.length === 0) {
     ps.innerHTML = `<option value="">[${month}]에 매출 기록이 없습니다</option>`;
@@ -2450,11 +2448,9 @@ function onSetProdChange() {
   const month = document.getElementById('set-f-month').value;
   const prodVal = document.getElementById('set-f-product').value;
   const hs = document.getElementById('set-f-hospital-sel');
-  console.log('[onSetProdChange] month=', month, 'prodVal=', prodVal, 'total tx=', _transactions.length);
   if (!month || !prodVal) { hs.innerHTML = '<option value="">품목을 선택하세요</option>'; return; }
   const code = prodVal.split('|')[0];
   const sales = salesInMonth(month).filter(s => s.productCode === code);
-  console.log('[onSetProdChange] code=', code, 'sales matched=', sales.length, sales);
   const partners = [...new Set(sales.map(s => s.partner).filter(Boolean))].sort();
   if (partners.length === 0) {
     hs.innerHTML = `<option value="">[${month}]에 [${code}] 매출 기록이 없습니다</option>`;
@@ -2529,7 +2525,6 @@ function openEditSettlement(id) {
   document.getElementById('modal-settlement').classList.add('active');
   setTimeout(calcSetAmounts, 0);
 }
-function onSetProdChange() { calcSetAmounts(); }
 
 // 사용자가 정산금액을 직접 수정한 경우 호출 — 검증만 실행
 function onSetSettleEdit() {
