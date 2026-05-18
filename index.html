@@ -1000,8 +1000,8 @@ select.form-control { cursor: pointer; }
       </div>
       <!-- 자동 채워지는 정보 -->
       <div class="form-group">
-        <label class="form-label">담당자</label>
-        <input type="text" id="set-f-manager" class="form-control" placeholder="자동" style="background:var(--bg-soft)">
+        <label class="form-label">정산 담당자 *</label>
+        <input type="text" id="set-f-manager" class="form-control" placeholder="예: Sm 팜">
       </div>
       <div class="form-group">
         <label class="form-label">구분</label>
@@ -2510,13 +2510,14 @@ function onSetProdChange() {
     return;
   }
   hs.innerHTML = '<option value="">선택</option>' + partners.map(p => `<option value="${p}">${p}</option>`).join('');
-  // 병원이 아직 선택 안 됐으므로 개당정산은 빈 상태로 초기화 (병원 선택 후 lock-in)
-  const puEl = document.getElementById('set-f-perunit');
+  // 병원이 아직 선택 안 됐으므로 정산담당자/개당정산은 빈 상태로 초기화 (병원 선택 후 lock-in)
+  const mgrEl    = document.getElementById('set-f-manager');
+  const puEl     = document.getElementById('set-f-perunit');
   const marginEl = document.getElementById('set-f-margin');
-  const hint = document.getElementById('set-f-perunit-hint');
-  puEl.value = ''; marginEl.value = '';
-  puEl.readOnly = false; marginEl.readOnly = false;
-  puEl.style.background = ''; marginEl.style.background = 'var(--bg-soft)';
+  const hint     = document.getElementById('set-f-perunit-hint');
+  mgrEl.value = ''; puEl.value = ''; marginEl.value = '';
+  mgrEl.readOnly = false; puEl.readOnly = false; marginEl.readOnly = false;
+  mgrEl.style.background = ''; puEl.style.background = ''; marginEl.style.background = 'var(--bg-soft)';
   if (hint) hint.style.display = 'none';
 }
 
@@ -2528,14 +2529,12 @@ function onSetHospChange() {
   const code = prodV.split('|')[0];
   const sales = salesInMonth(month).filter(s => s.productCode === code && s.partner === hosp);
   if (sales.length === 0) return;
-  // 수량 합산, 단가는 가장 최근 매출 단가 그대로, 담당자/일자 자동 채움
+  // 수량 합산, 단가는 가장 최근 매출 단가 그대로, 일자만 자동 (담당자는 매출과 별개, lock에서 처리)
   const totalQty = sales.reduce((a,s)=>a+s.qty, 0);
   const latest   = [...sales].sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];
   const unitPrice = latest?.unitPrice || 0;
-  const managers = [...new Set(sales.map(s=>s.manager).filter(Boolean))];
   setNumI('set-f-qty', totalQty);
   setNumI('set-f-unitprice', unitPrice);
-  document.getElementById('set-f-manager').value = managers.join(', ');
   document.getElementById('set-f-date').value    = sales.map(s=>s.date).sort().pop() || (month + '-01');
   document.getElementById('set-f-hospital').value = hosp;
 
@@ -2544,37 +2543,43 @@ function onSetHospChange() {
   calcSetAmounts();
 }
 
-// (품목 + 병원) 조합으로 기존 데이터 찾아 개당정산/구분을 자동 적용 (병원납품가는 매출에서 자동)
+// (품목 + 병원) 조합으로 기존 데이터 찾아 정산담당자/개당정산/구분을 자동 적용
 function applyLockedFieldsForCombo(code, hosp) {
   const editingId = +document.getElementById('set-id').value || null;
   const prev = findPrevByProductHospitalExcl(code, hosp, editingId);
+  const mgrEl    = document.getElementById('set-f-manager');
   const puEl     = document.getElementById('set-f-perunit');
   const marginEl = document.getElementById('set-f-margin');
   const optEl    = document.getElementById('set-f-option');
   const hint     = document.getElementById('set-f-perunit-hint');
 
   if (prev) {
-    // 기존 데이터 있음 — 개당정산 자동 로드 + 잠금
+    // 기존 데이터 있음 — 정산담당자/개당정산/구분 자동 로드 + 잠금
+    mgrEl.value = prev.manager || '';
     setNumI('set-f-perunit', prev.perUnitAmount);
-    optEl.value    = prev.optionType || '프리랜서';
-    puEl.readOnly = true;
-    puEl.style.background = 'var(--bg-tint-primary)';
+    optEl.value = prev.optionType || '프리랜서';
+    mgrEl.readOnly = true;
+    puEl.readOnly  = true;
+    mgrEl.style.background = 'var(--bg-tint-primary)';
+    puEl.style.background  = 'var(--bg-tint-primary)';
     // 마진은 항상 계산값이므로 잠금만
     marginEl.readOnly = true;
     marginEl.style.background = 'var(--bg-soft)';
     if (hint) {
-      hint.textContent = `🔒 이전 정산(${prev.date}) 기준 자동 적용 — 개당 정산금액 변경 불가`;
+      hint.textContent = `🔒 이전 정산(${prev.date}) 기준 자동 적용 — 정산담당자·개당 정산금액 변경 불가`;
       hint.style.display = 'block';
       hint.style.color = 'var(--sb-green-accent)';
     }
   } else {
-    // 기존 없음 — 개당정산 최초 입력
-    puEl.readOnly = false;
-    puEl.style.background = '';
-    marginEl.readOnly = true;  // 마진은 자동 계산값
+    // 기존 없음 — 정산담당자/개당정산 최초 입력
+    mgrEl.readOnly = false;
+    puEl.readOnly  = false;
+    mgrEl.style.background = '';
+    puEl.style.background  = '';
+    marginEl.readOnly = true;
     marginEl.style.background = 'var(--bg-soft)';
     if (hint) {
-      hint.textContent = '✏ 최초 등록 — 개당 정산금액 직접 입력 (다음부터 자동 적용)';
+      hint.textContent = '✏ 최초 등록 — 정산 담당자 · 개당 정산금액 직접 입력 (다음부터 자동 적용)';
       hint.style.display = 'block';
       hint.style.color = 'var(--warning)';
     }
@@ -2694,7 +2699,8 @@ async function saveSettlement() {
   const prodVal = document.getElementById('set-f-product').value;
   const hospital = document.getElementById('set-f-hospital-sel').value || document.getElementById('set-f-hospital').value;
   const qty = getNumI('set-f-qty');
-  if (!month || !prodVal || !hospital || qty <= 0) { alert('필수 항목(월/품목/병원/수량)을 입력하세요'); return; }
+  const manager = document.getElementById('set-f-manager').value.trim();
+  if (!month || !prodVal || !hospital || qty <= 0 || !manager) { alert('필수 항목(월/품목/병원/수량/정산담당자)을 입력하세요'); return; }
   // 일자는 매출에서 추출된 값 우선, 없으면 월의 마지막 매출일, 그것도 없으면 1일
   let date = document.getElementById('set-f-date').value;
   if (!date) {
@@ -2702,7 +2708,6 @@ async function saveSettlement() {
     const sales = salesInMonth(month).filter(s => s.productCode === code && s.partner === hospital);
     date = sales.map(s=>s.date).sort().pop() || (month + '-01');
   }
-  const manager = document.getElementById('set-f-manager').value.trim();
   const [code, name] = prodVal.split('|');
   const up  = getNumI('set-f-unitprice');
   const pu  = getNumI('set-f-perunit');
