@@ -58,7 +58,51 @@ create policy "owner_transactions" on public.transactions
 alter publication supabase_realtime add table public.products;
 alter publication supabase_realtime add table public.transactions;
 
--- 6. 일일 메일 발송 로그 (중복 발송 방지)
+-- 6. 담당자 정산 테이블
+create table if not exists public.settlements (
+  id                bigserial primary key,
+  date              text not null,             -- YYYY-MM-DD
+  hospital_name     text not null default '',  -- 병원명
+  product_code      text not null default '',
+  product_name      text not null default '',
+  qty               integer not null default 0,        -- 병원 납품수량
+  unit_price        numeric not null default 0,        -- 병원납품가
+  amount            numeric not null default 0,        -- 매출액
+  per_unit_amount   numeric not null default 0,        -- 개당 정산금액
+  margin_rate       numeric not null default 0,        -- 마진률 (0~1)
+  manager           text not null default '',          -- 담당자
+  settlement_amount numeric not null default 0,        -- 담당자 정산금액
+  option_type       text default '프리랜서',           -- 프리랜서 / 사업자
+  note              text default '',
+  user_id           uuid references auth.users not null,
+  created_at        timestamptz default now()
+);
+alter table public.settlements enable row level security;
+create policy "owner_settlements" on public.settlements
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+alter publication supabase_realtime add table public.settlements;
+
+-- 7. 일정 캘린더 테이블
+create table if not exists public.schedules (
+  id          bigserial primary key,
+  date        text not null,              -- YYYY-MM-DD
+  person      text not null default '',   -- 담당자명
+  title       text not null default '',
+  schedule_type text default '외근',       -- 외근/회의/기타
+  start_time  text default '',             -- HH:MM
+  end_time    text default '',
+  location    text default '',
+  note        text default '',
+  shared      boolean default true,        -- 다른 사람과 공유 여부
+  user_id     uuid references auth.users not null,
+  created_at  timestamptz default now()
+);
+alter table public.schedules enable row level security;
+create policy "owner_schedules" on public.schedules
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+alter publication supabase_realtime add table public.schedules;
+
+-- 8. 일일 메일 발송 로그 (중복 발송 방지)
 create table if not exists public.daily_email_log (
   date         text primary key,        -- 'YYYY-MM-DD' (KST 기준)
   sent_at      timestamptz default now(),

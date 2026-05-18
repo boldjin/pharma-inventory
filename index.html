@@ -349,6 +349,27 @@ select.form-control { cursor: pointer; }
 }
 .inner-tab.active { color: var(--sb-green-accent); border-bottom-color: var(--sb-green-accent); font-weight: 600; }
 
+/* Calendar */
+.cal-head { font-size: 12px; font-weight: 600; color: var(--text-secondary); text-align: center; padding: 8px 0; letter-spacing: -0.01em; }
+.cal-head.sun { color: #c82014; }
+.cal-head.sat { color: #1e6cb5; }
+.cal-cell {
+  min-height: 90px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px; display: flex; flex-direction: column; gap: 4px;
+  cursor: pointer; transition: background 0.15s;
+}
+.cal-cell:hover { background: var(--bg-soft); }
+.cal-cell.other-month { opacity: 0.35; }
+.cal-cell.today { border: 2px solid var(--sb-green-accent); }
+.cal-date { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.cal-date.sun { color: #c82014; }
+.cal-date.sat { color: #1e6cb5; }
+.cal-event {
+  font-size: 10.5px; padding: 2px 6px; border-radius: 6px; color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em;
+  font-weight: 500;
+}
+
 /* Trend chips */
 .trend-chips { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
 .trend-chip {
@@ -424,6 +445,9 @@ select.form-control { cursor: pointer; }
   <div class="nav-tab" data-tab="sales">💰 매출현황</div>
   <div class="nav-tab" data-tab="records">📋 입출고기록</div>
   <div class="nav-tab" data-tab="products">🗂 품목관리</div>
+  <div class="nav-tab" data-tab="settlement">💵 담당자정산</div>
+  <div class="nav-tab" data-tab="settle-dash">📈 정산대시보드</div>
+  <div class="nav-tab" data-tab="calendar">📅 캘린더</div>
 </nav>
 
 <div class="main">
@@ -653,6 +677,138 @@ select.form-control { cursor: pointer; }
     </div>
   </div>
 
+  <!-- ====== 담당자정산 탭 ====== -->
+  <div id="tab-settlement" class="tab-content">
+    <div class="filter-bar">
+      <div class="filter-group">
+        <div class="filter-label">시작일</div>
+        <input type="date" id="set-from">
+      </div>
+      <div class="filter-group">
+        <div class="filter-label">종료일</div>
+        <input type="date" id="set-to">
+      </div>
+      <div class="filter-group">
+        <div class="filter-label">담당자</div>
+        <select id="set-manager" style="width:140px"><option value="">전체</option></select>
+      </div>
+      <div class="filter-group">
+        <div class="filter-label">병원</div>
+        <select id="set-hospital" style="width:160px"><option value="">전체</option></select>
+      </div>
+      <div class="filter-group">
+        <div class="filter-label">품목</div>
+        <select id="set-product" style="width:160px"><option value="">전체</option></select>
+      </div>
+      <div class="filter-actions">
+        <button class="btn btn-primary btn-sm" onclick="renderSettlement()">조회</button>
+        <button class="btn btn-success btn-sm" onclick="openAddSettlement()">+ 정산 추가</button>
+      </div>
+    </div>
+    <div class="summary-row" id="set-summary"></div>
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>일자</th><th>병원명</th><th>품목코드</th><th>품목명</th>
+            <th class="td-right">납품수량</th><th class="td-right">납품가</th><th class="td-right">매출액</th>
+            <th class="td-right">개당정산</th><th class="td-right">마진률</th>
+            <th>담당자</th><th class="td-right">정산금액</th><th>구분</th><th>비고</th>
+            <th class="td-center">관리</th>
+          </tr></thead>
+          <tbody id="set-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== 정산 대시보드 탭 ====== -->
+  <div id="tab-settle-dash" class="tab-content">
+    <div class="filter-bar">
+      <div class="filter-group">
+        <div class="filter-label">기준월</div>
+        <select id="sd-month" style="width:140px"></select>
+      </div>
+      <div class="filter-group">
+        <div class="filter-label">담당자</div>
+        <select id="sd-manager" style="width:140px"><option value="">전체</option></select>
+      </div>
+      <div class="filter-group">
+        <div class="filter-label">병원</div>
+        <select id="sd-hospital" style="width:160px"><option value="">전체</option></select>
+      </div>
+      <div class="filter-group">
+        <div class="filter-label">품목</div>
+        <select id="sd-product" style="width:160px"><option value="">전체</option></select>
+      </div>
+      <div class="filter-actions">
+        <button class="btn btn-primary btn-sm" onclick="renderSettleDash()">조회</button>
+      </div>
+    </div>
+    <div class="kpi-grid" id="sd-kpis"></div>
+    <div class="chart-grid">
+      <div class="card">
+        <div class="card-title">담당자별 정산금액</div>
+        <div class="chart-wrap"><canvas id="chart-sd-mgr"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">병원별 매출/정산 비중</div>
+        <div class="chart-wrap"><canvas id="chart-sd-hosp"></canvas></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">상세 내역 (조건 일치)</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>일자</th><th>담당자</th><th>병원</th><th>품목</th>
+            <th class="td-right">수량</th><th class="td-right">매출액</th>
+            <th class="td-right">정산금액</th><th class="td-right">실수령액</th>
+          </tr></thead>
+          <tbody id="sd-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== 캘린더 탭 ====== -->
+  <div id="tab-calendar" class="tab-content">
+    <div class="filter-bar">
+      <div class="filter-group">
+        <div class="filter-label">이전</div>
+        <button class="btn btn-outline btn-sm" onclick="navCalendar(-1)">◀</button>
+      </div>
+      <div class="filter-group">
+        <div class="filter-label">표시 월</div>
+        <div id="cal-title" style="font-size:18px; font-weight:700; color:var(--text-brand); letter-spacing:-0.02em; padding:6px 10px; min-width:140px;">2026년 5월</div>
+      </div>
+      <div class="filter-group">
+        <div class="filter-label">다음</div>
+        <button class="btn btn-outline btn-sm" onclick="navCalendar(1)">▶</button>
+      </div>
+      <div class="filter-group">
+        <div class="filter-label">담당자 필터</div>
+        <select id="cal-person" style="width:140px" onchange="renderCalendar()"><option value="">전체</option></select>
+      </div>
+      <div class="filter-actions">
+        <button class="btn btn-outline btn-sm" onclick="goToday()">오늘</button>
+        <button class="btn btn-success btn-sm" onclick="openAddSchedule()">+ 일정 추가</button>
+      </div>
+    </div>
+    <div class="card">
+      <div id="cal-grid" style="display:grid; grid-template-columns:repeat(7, 1fr); gap:6px;"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">이번 달 일정 요약</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>일자</th><th>담당자</th><th>유형</th><th>제목</th><th>시간</th><th>장소</th><th>비고</th><th class="td-center">관리</th></tr></thead>
+          <tbody id="cal-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /main -->
 
 <!-- ====== 거래 추가/수정 Modal ====== -->
@@ -804,6 +960,137 @@ select.form-control { cursor: pointer; }
   </div>
 </div>
 
+<!-- ====== 담당자정산 Modal ====== -->
+<div id="modal-settlement" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="set-modal-title">정산 추가</div>
+      <button class="modal-close" onclick="closeModal('modal-settlement')">✕</button>
+    </div>
+    <input type="hidden" id="set-id">
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">일자 *</label>
+        <input type="date" id="set-f-date" class="form-control">
+      </div>
+      <div class="form-group">
+        <label class="form-label">담당자 *</label>
+        <input type="text" id="set-f-manager" class="form-control" placeholder="예: Sm 팜">
+      </div>
+      <div class="form-group">
+        <label class="form-label">병원명 *</label>
+        <input type="text" id="set-f-hospital" class="form-control">
+      </div>
+      <div class="form-group">
+        <label class="form-label">구분</label>
+        <select id="set-f-option" class="form-control">
+          <option value="프리랜서">프리랜서 (3.3% 차감)</option>
+          <option value="사업자">사업자</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">품목 *</label>
+        <select id="set-f-product" class="form-control" onchange="onSetProdChange()"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">납품수량 *</label>
+        <input type="number" id="set-f-qty" class="form-control" min="0" oninput="calcSetAmounts()">
+      </div>
+      <div class="form-group">
+        <label class="form-label">병원 납품가 (개당)</label>
+        <input type="number" id="set-f-unitprice" class="form-control" min="0" oninput="calcSetAmounts()">
+      </div>
+      <div class="form-group">
+        <label class="form-label">매출액 (자동)</label>
+        <input type="number" id="set-f-amount" class="form-control" readonly style="background:var(--bg-soft)">
+      </div>
+      <div class="form-group">
+        <label class="form-label">개당 정산금액 *</label>
+        <input type="number" id="set-f-perunit" class="form-control" min="0" oninput="calcSetAmounts()">
+      </div>
+      <div class="form-group">
+        <label class="form-label">담당자 정산금액 (자동)</label>
+        <input type="number" id="set-f-settle" class="form-control" readonly style="background:var(--bg-soft)">
+      </div>
+      <div class="form-group">
+        <label class="form-label">마진률 (%) (선택)</label>
+        <input type="number" id="set-f-margin" class="form-control" step="0.01" placeholder="자동 계산">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">비고</label>
+        <input type="text" id="set-f-note" class="form-control">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger" id="set-del-btn" onclick="deleteSettlement()" style="display:none; margin-right:auto;">삭제</button>
+      <button class="btn btn-outline" onclick="closeModal('modal-settlement')">취소</button>
+      <button class="btn btn-primary" onclick="saveSettlement()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 일정 Modal ====== -->
+<div id="modal-schedule" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="cal-modal-title">일정 추가</div>
+      <button class="modal-close" onclick="closeModal('modal-schedule')">✕</button>
+    </div>
+    <input type="hidden" id="cal-id">
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">일자 *</label>
+        <input type="date" id="cal-f-date" class="form-control">
+      </div>
+      <div class="form-group">
+        <label class="form-label">담당자 *</label>
+        <input type="text" id="cal-f-person" class="form-control" placeholder="예: 고영찬">
+      </div>
+      <div class="form-group">
+        <label class="form-label">유형</label>
+        <select id="cal-f-type" class="form-control">
+          <option value="외근">외근</option>
+          <option value="회의">회의</option>
+          <option value="휴가">휴가</option>
+          <option value="기타">기타</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">공유</label>
+        <select id="cal-f-shared" class="form-control">
+          <option value="true">전체 공유</option>
+          <option value="false">본인만</option>
+        </select>
+      </div>
+      <div class="form-group full">
+        <label class="form-label">제목 *</label>
+        <input type="text" id="cal-f-title" class="form-control" placeholder="예: 강동성심병원 미팅">
+      </div>
+      <div class="form-group">
+        <label class="form-label">시작 시간</label>
+        <input type="time" id="cal-f-start" class="form-control">
+      </div>
+      <div class="form-group">
+        <label class="form-label">종료 시간</label>
+        <input type="time" id="cal-f-end" class="form-control">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">장소</label>
+        <input type="text" id="cal-f-location" class="form-control">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">비고</label>
+        <input type="text" id="cal-f-note" class="form-control">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger" id="cal-del-btn" onclick="deleteSchedule()" style="display:none; margin-right:auto;">삭제</button>
+      <button class="btn btn-outline" onclick="closeModal('modal-schedule')">취소</button>
+      <button class="btn btn-primary" onclick="saveSchedule()">저장</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ========================================
 // THEME (Light / Dark)
@@ -864,8 +1151,12 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
 // ========================================
 let _products     = [];
 let _transactions = [];
+let _settlements  = [];
+let _schedules    = [];
 let _userId       = null;
 let _realtimeCh   = null;
+let _calYear      = new Date().getFullYear();
+let _calMonth     = new Date().getMonth();  // 0-based
 
 function getProducts()     { return _products; }
 function getTransactions() { return _transactions; }
@@ -917,6 +1208,45 @@ function txFromDb(r) {
   };
 }
 
+function settlementToDb(s) {
+  return {
+    id: s.id, date: s.date, hospital_name: s.hospitalName || '',
+    product_code: s.productCode || '', product_name: s.productName || '',
+    qty: Number(s.qty || 0), unit_price: Number(s.unitPrice || 0),
+    amount: Number(s.amount || 0), per_unit_amount: Number(s.perUnitAmount || 0),
+    margin_rate: Number(s.marginRate || 0), manager: s.manager || '',
+    settlement_amount: Number(s.settlementAmount || 0),
+    option_type: s.optionType || '프리랜서', note: s.note || '',
+    user_id: _userId,
+  };
+}
+function settlementFromDb(r) {
+  return {
+    id: r.id, date: r.date, hospitalName: r.hospital_name,
+    productCode: r.product_code, productName: r.product_name,
+    qty: r.qty, unitPrice: Number(r.unit_price), amount: Number(r.amount),
+    perUnitAmount: Number(r.per_unit_amount), marginRate: Number(r.margin_rate),
+    manager: r.manager, settlementAmount: Number(r.settlement_amount),
+    optionType: r.option_type, note: r.note,
+  };
+}
+function scheduleToDb(s) {
+  return {
+    id: s.id, date: s.date, person: s.person || '',
+    title: s.title || '', schedule_type: s.scheduleType || '외근',
+    start_time: s.startTime || '', end_time: s.endTime || '',
+    location: s.location || '', note: s.note || '',
+    shared: s.shared !== false, user_id: _userId,
+  };
+}
+function scheduleFromDb(r) {
+  return {
+    id: r.id, date: r.date, person: r.person, title: r.title,
+    scheduleType: r.schedule_type, startTime: r.start_time, endTime: r.end_time,
+    location: r.location, note: r.note, shared: r.shared !== false,
+  };
+}
+
 // ========================================
 // SUPABASE DB 함수
 // ========================================
@@ -929,6 +1259,8 @@ async function loadAllData() {
   const attempt = () => Promise.all([
     sb.from('products').select('*').order('code'),
     sb.from('transactions').select('*').order('date', { ascending: false }),
+    sb.from('settlements').select('*').order('date', { ascending: false }),
+    sb.from('schedules').select('*').order('date', { ascending: true }),
   ]);
 
   let result;
@@ -940,11 +1272,16 @@ async function loadAllData() {
     result = await withTimeout(attempt(), 30000);
   }
 
-  const [{ data: prods, error: e1 }, { data: txns, error: e2 }] = result;
+  const [{ data: prods, error: e1 }, { data: txns, error: e2 }, { data: setRows, error: e3 }, { data: schRows, error: e4 }] = result;
   if (e1) throw new Error('품목 로딩 실패: ' + e1.message);
   if (e2) throw new Error('거래기록 로딩 실패: ' + e2.message);
-  _products     = (prods || []).map(productFromDb);
-  _transactions = (txns  || []).map(txFromDb);
+  // settlements/schedules는 테이블이 없을 수도 있어서(스키마 미적용 환경) 비치명적으로 처리
+  if (e3 && !/relation .* does not exist/i.test(e3.message)) console.warn('settlements 로딩 경고:', e3.message);
+  if (e4 && !/relation .* does not exist/i.test(e4.message)) console.warn('schedules 로딩 경고:', e4.message);
+  _products     = (prods   || []).map(productFromDb);
+  _transactions = (txns    || []).map(txFromDb);
+  _settlements  = (setRows || []).map(settlementFromDb);
+  _schedules    = (schRows || []).map(scheduleFromDb);
 }
 
 async function dbUpsertProduct(prod) {
@@ -1191,12 +1528,15 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
     tab.classList.add('active');
     document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
     switch(tab.dataset.tab) {
-      case 'dashboard': renderDashboard();      break;
-      case 'stock':     renderStock();          break;
-      case 'purchase':  renderPurchase();       break;
-      case 'sales':     renderSales();          break;
-      case 'records':   renderRecords();        break;
-      case 'products':  renderProductsPage();   break;
+      case 'dashboard':   renderDashboard();      break;
+      case 'stock':       renderStock();          break;
+      case 'purchase':    renderPurchase();       break;
+      case 'sales':       renderSales();          break;
+      case 'records':     renderRecords();        break;
+      case 'products':    renderProductsPage();   break;
+      case 'settlement':  renderSettlement();     break;
+      case 'settle-dash': renderSettleDash();     break;
+      case 'calendar':    renderCalendar();       break;
     }
   });
 });
@@ -1205,12 +1545,15 @@ function refreshCurrentTab() {
   const active = document.querySelector('.nav-tab.active');
   if (!active) return;
   switch(active.dataset.tab) {
-    case 'dashboard': renderDashboard();    break;
-    case 'stock':     renderStock();        break;
-    case 'purchase':  renderPurchase();     break;
-    case 'sales':     renderSales();        break;
-    case 'records':   renderRecords();      break;
-    case 'products':  renderProductsPage(); break;
+    case 'dashboard':   renderDashboard();    break;
+    case 'stock':       renderStock();        break;
+    case 'purchase':    renderPurchase();     break;
+    case 'sales':       renderSales();        break;
+    case 'records':     renderRecords();      break;
+    case 'products':    renderProductsPage(); break;
+    case 'settlement':  renderSettlement();   break;
+    case 'settle-dash': renderSettleDash();   break;
+    case 'calendar':    renderCalendar();     break;
   }
 }
 
@@ -1867,12 +2210,436 @@ function subscribeRealtime() {
         filter: `user_id=eq.${_userId}` }, scheduleReload)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions',
         filter: `user_id=eq.${_userId}` }, scheduleReload)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'settlements',
+        filter: `user_id=eq.${_userId}` }, scheduleReload)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'schedules',
+        filter: `user_id=eq.${_userId}` }, scheduleReload)
     .subscribe((status, err) => {
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
         console.warn('Realtime 연결 오류, 5초 후 재연결...', err);
         setTimeout(() => { if (_userId) subscribeRealtime(); }, 5000);
       }
     });
+}
+
+// ========================================
+// SETTLEMENT (담당자정산) — CRUD + Render
+// ========================================
+async function dbInsertSettlement(s) {
+  const row = settlementToDb(s); delete row.id;
+  const { error } = await sb.from('settlements').insert(row);
+  if (error) throw error;
+}
+async function dbUpdateSettlement(s) {
+  const { error } = await sb.from('settlements').update(settlementToDb(s)).eq('id', s.id).eq('user_id', _userId);
+  if (error) throw error;
+}
+async function dbDeleteSettlement(id) {
+  const { error } = await sb.from('settlements').delete().eq('id', id).eq('user_id', _userId);
+  if (error) throw error;
+}
+
+function initSettlementFilters() {
+  const mgrSel = document.getElementById('set-manager');
+  const hospSel = document.getElementById('set-hospital');
+  const prodSel = document.getElementById('set-product');
+  if (!mgrSel) return;
+  const mgrs  = [...new Set(_settlements.map(s => s.manager).filter(Boolean))].sort();
+  const hosps = [...new Set(_settlements.map(s => s.hospitalName).filter(Boolean))].sort();
+  mgrSel.innerHTML  = '<option value="">전체</option>' + mgrs.map(m => `<option value="${m}">${m}</option>`).join('');
+  hospSel.innerHTML = '<option value="">전체</option>' + hosps.map(h => `<option value="${h}">${h}</option>`).join('');
+  prodSel.innerHTML = '<option value="">전체</option>' + _products.map(p => `<option value="${p.code}">${p.name}</option>`).join('');
+}
+
+function renderSettlement() {
+  initSettlementFilters();
+  const from = document.getElementById('set-from').value;
+  const to   = document.getElementById('set-to').value;
+  const mgr  = document.getElementById('set-manager').value;
+  const hosp = document.getElementById('set-hospital').value;
+  const prod = document.getElementById('set-product').value;
+  let rows = _settlements.slice();
+  if (from) rows = rows.filter(s => s.date >= from);
+  if (to)   rows = rows.filter(s => s.date <= to);
+  if (mgr)  rows = rows.filter(s => s.manager === mgr);
+  if (hosp) rows = rows.filter(s => s.hospitalName === hosp);
+  if (prod) rows = rows.filter(s => s.productCode === prod);
+
+  const sumAmount = rows.reduce((a,s) => a + s.amount, 0);
+  const sumSettle = rows.reduce((a,s) => a + s.settlementAmount, 0);
+  const sumNet    = rows.reduce((a,s) => a + netSettle(s), 0);
+  document.getElementById('set-summary').innerHTML = `
+    <div class="summary-item">건수: <strong>${rows.length}건</strong></div>
+    <div class="summary-item">매출액 합계: <strong>${fmtNum(sumAmount)}원</strong></div>
+    <div class="summary-item">정산금액 합계: <strong>${fmtNum(sumSettle)}원</strong></div>
+    <div class="summary-item">실수령액 합계: <strong>${fmtNum(sumNet)}원</strong> (프리랜서 3.3% 차감 반영)</div>`;
+
+  document.getElementById('set-tbody').innerHTML = rows.map(s => `
+    <tr>
+      <td>${s.date}</td><td>${s.hospitalName}</td><td>${s.productCode}</td><td><strong>${s.productName}</strong></td>
+      <td class="td-right">${fmtNum(s.qty)}</td>
+      <td class="td-right">${fmtNum(s.unitPrice)}원</td>
+      <td class="td-right">${fmtNum(s.amount)}원</td>
+      <td class="td-right">${fmtNum(s.perUnitAmount)}원</td>
+      <td class="td-right">${(s.marginRate*100).toFixed(1)}%</td>
+      <td>${s.manager}</td>
+      <td class="td-right"><strong>${fmtNum(s.settlementAmount)}원</strong></td>
+      <td><span class="badge ${s.optionType==='프리랜서'?'badge-orange':'badge-green'}">${s.optionType}</span></td>
+      <td>${s.note || '-'}</td>
+      <td class="td-center"><button class="btn btn-outline btn-sm" onclick="openEditSettlement(${s.id})">수정</button></td>
+    </tr>`).join('') || '<tr><td colspan="14" class="empty-state">등록된 정산 내역이 없습니다.</td></tr>';
+}
+
+function netSettle(s) {
+  // 프리랜서는 3.3% 추가 차감
+  return s.optionType === '프리랜서' ? Math.round(s.settlementAmount * 0.967) : s.settlementAmount;
+}
+
+function openAddSettlement() {
+  document.getElementById('set-modal-title').textContent = '정산 추가';
+  document.getElementById('set-id').value = '';
+  document.getElementById('set-f-date').value = new Date().toISOString().slice(0,10);
+  ['set-f-manager','set-f-hospital','set-f-note'].forEach(id => document.getElementById(id).value = '');
+  ['set-f-qty','set-f-unitprice','set-f-amount','set-f-perunit','set-f-settle','set-f-margin']
+    .forEach(id => document.getElementById(id).value = '');
+  const ps = document.getElementById('set-f-product');
+  ps.innerHTML = '<option value="">선택</option>' + _products.map(p => `<option value="${p.code}|${p.name}">${p.code} - ${p.name}</option>`).join('');
+  document.getElementById('set-f-option').value = '프리랜서';
+  document.getElementById('set-del-btn').style.display = 'none';
+  document.getElementById('modal-settlement').classList.add('active');
+}
+function openEditSettlement(id) {
+  const s = _settlements.find(x => x.id === id);
+  if (!s) return;
+  document.getElementById('set-modal-title').textContent = '정산 수정';
+  document.getElementById('set-id').value = id;
+  document.getElementById('set-f-date').value     = s.date;
+  document.getElementById('set-f-manager').value  = s.manager;
+  document.getElementById('set-f-hospital').value = s.hospitalName;
+  document.getElementById('set-f-option').value   = s.optionType || '프리랜서';
+  const ps = document.getElementById('set-f-product');
+  ps.innerHTML = '<option value="">선택</option>' + _products.map(p => `<option value="${p.code}|${p.name}">${p.code} - ${p.name}</option>`).join('');
+  ps.value = s.productCode + '|' + s.productName;
+  document.getElementById('set-f-qty').value       = s.qty;
+  document.getElementById('set-f-unitprice').value = s.unitPrice;
+  document.getElementById('set-f-amount').value    = s.amount;
+  document.getElementById('set-f-perunit').value   = s.perUnitAmount;
+  document.getElementById('set-f-settle').value    = s.settlementAmount;
+  document.getElementById('set-f-margin').value    = (s.marginRate*100).toFixed(2);
+  document.getElementById('set-f-note').value      = s.note || '';
+  document.getElementById('set-del-btn').style.display = 'inline-flex';
+  document.getElementById('modal-settlement').classList.add('active');
+}
+function onSetProdChange() { calcSetAmounts(); }
+function calcSetAmounts() {
+  const qty = +document.getElementById('set-f-qty').value || 0;
+  const up  = +document.getElementById('set-f-unitprice').value || 0;
+  const pu  = +document.getElementById('set-f-perunit').value || 0;
+  document.getElementById('set-f-amount').value = qty * up;
+  document.getElementById('set-f-settle').value = qty * pu;
+  // 마진률 자동 계산: 평균 매입단가가 있으면
+  const prodVal = document.getElementById('set-f-product').value;
+  if (prodVal && up > 0) {
+    const code = prodVal.split('|')[0];
+    const avg = calcAvgBuyPrice(code);
+    if (avg > 0) {
+      const margin = ((up - avg) / up * 100).toFixed(2);
+      document.getElementById('set-f-margin').value = margin;
+    }
+  }
+}
+async function saveSettlement() {
+  const idStr = document.getElementById('set-id').value;
+  const id = idStr ? +idStr : null;
+  const date = document.getElementById('set-f-date').value;
+  const manager = document.getElementById('set-f-manager').value.trim();
+  const hospital = document.getElementById('set-f-hospital').value.trim();
+  const prodVal = document.getElementById('set-f-product').value;
+  if (!date || !manager || !hospital || !prodVal) { alert('필수 항목(일자/담당자/병원/품목)을 입력하세요'); return; }
+  const [code, name] = prodVal.split('|');
+  const qty = +document.getElementById('set-f-qty').value || 0;
+  const up  = +document.getElementById('set-f-unitprice').value || 0;
+  const pu  = +document.getElementById('set-f-perunit').value || 0;
+  const marginPct = +document.getElementById('set-f-margin').value || 0;
+  const s = {
+    id, date, hospitalName: hospital, productCode: code, productName: name,
+    qty, unitPrice: up, amount: qty*up, perUnitAmount: pu, settlementAmount: qty*pu,
+    marginRate: marginPct / 100, manager,
+    optionType: document.getElementById('set-f-option').value,
+    note: document.getElementById('set-f-note').value,
+  };
+  try {
+    if (id) await dbUpdateSettlement(s);
+    else    await dbInsertSettlement(s);
+    closeModal('modal-settlement');
+    await loadAllData();
+    renderSettlement();
+  } catch(e) { alert('저장 실패: ' + e.message); }
+}
+async function deleteSettlement() {
+  const id = +document.getElementById('set-id').value;
+  if (!id) return;
+  if (!confirm('이 정산 내역을 삭제할까요?')) return;
+  try {
+    await dbDeleteSettlement(id);
+    closeModal('modal-settlement');
+    await loadAllData();
+    renderSettlement();
+  } catch(e) { alert('삭제 실패: ' + e.message); }
+}
+
+// ========================================
+// SETTLEMENT DASHBOARD
+// ========================================
+function initSettleDashFilters() {
+  const months = [...new Set(_settlements.map(s => (s.date||'').slice(0,7)))].filter(Boolean).sort().reverse();
+  const monthSel = document.getElementById('sd-month');
+  if (!monthSel) return;
+  monthSel.innerHTML = '<option value="">전체 기간</option>' + months.map(m => `<option value="${m}">${m}</option>`).join('');
+  const mgrs  = [...new Set(_settlements.map(s => s.manager).filter(Boolean))].sort();
+  const hosps = [...new Set(_settlements.map(s => s.hospitalName).filter(Boolean))].sort();
+  document.getElementById('sd-manager').innerHTML  = '<option value="">전체</option>' + mgrs.map(m => `<option value="${m}">${m}</option>`).join('');
+  document.getElementById('sd-hospital').innerHTML = '<option value="">전체</option>' + hosps.map(h => `<option value="${h}">${h}</option>`).join('');
+  document.getElementById('sd-product').innerHTML  = '<option value="">전체</option>' + _products.map(p => `<option value="${p.code}">${p.name}</option>`).join('');
+}
+function renderSettleDash() {
+  initSettleDashFilters();
+  const month = document.getElementById('sd-month').value;
+  const mgr   = document.getElementById('sd-manager').value;
+  const hosp  = document.getElementById('sd-hospital').value;
+  const prod  = document.getElementById('sd-product').value;
+  let rows = _settlements.slice();
+  if (month) rows = rows.filter(s => (s.date||'').startsWith(month));
+  if (mgr)   rows = rows.filter(s => s.manager === mgr);
+  if (hosp)  rows = rows.filter(s => s.hospitalName === hosp);
+  if (prod)  rows = rows.filter(s => s.productCode === prod);
+
+  const sumAmt = rows.reduce((a,s)=>a+s.amount, 0);
+  const sumSet = rows.reduce((a,s)=>a+s.settlementAmount, 0);
+  const sumNet = rows.reduce((a,s)=>a+netSettle(s), 0);
+  const mgrCnt = new Set(rows.map(r=>r.manager)).size;
+
+  document.getElementById('sd-kpis').innerHTML = `
+    <div class="kpi-card"><div class="kpi-label">총 매출액</div><div class="kpi-value">${fmtNum(sumAmt)}원</div><div class="kpi-sub">${rows.length}건</div></div>
+    <div class="kpi-card green"><div class="kpi-label">총 정산금액</div><div class="kpi-value">${fmtNum(sumSet)}원</div><div class="kpi-sub">담당자 ${mgrCnt}명</div></div>
+    <div class="kpi-card orange"><div class="kpi-label">실수령액 합계</div><div class="kpi-value">${fmtNum(sumNet)}원</div><div class="kpi-sub">프리랜서 3.3% 차감 반영</div></div>
+    <div class="kpi-card red"><div class="kpi-label">평균 마진률</div><div class="kpi-value">${rows.length? (rows.reduce((a,s)=>a+s.marginRate,0)/rows.length*100).toFixed(1):0}%</div><div class="kpi-sub">조건 일치 평균</div></div>`;
+
+  // 담당자별 정산금액 차트
+  const byMgr = {};
+  rows.forEach(r => { byMgr[r.manager] = (byMgr[r.manager]||0) + r.settlementAmount; });
+  destroyChart('sd-mgr');
+  charts['sd-mgr'] = new Chart(document.getElementById('chart-sd-mgr').getContext('2d'), {
+    type: 'bar',
+    data: { labels: Object.keys(byMgr), datasets: [{ label: '정산금액', data: Object.values(byMgr), backgroundColor: 'rgba(0,117,74,0.55)', borderColor: '#00754A', borderWidth: 2, borderRadius: 4 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v=>fmtNum(v) } } } }
+  });
+
+  // 병원별 비중
+  const byHosp = {};
+  rows.forEach(r => { byHosp[r.hospitalName] = (byHosp[r.hospitalName]||0) + r.amount; });
+  destroyChart('sd-hosp');
+  charts['sd-hosp'] = new Chart(document.getElementById('chart-sd-hosp').getContext('2d'), {
+    type: 'doughnut',
+    data: { labels: Object.keys(byHosp), datasets: [{ data: Object.values(byHosp), backgroundColor: HOSPITAL_COLORS.slice(0, Object.keys(byHosp).length), borderColor: 'var(--bg-card)', borderWidth: 2 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
+  });
+
+  document.getElementById('sd-tbody').innerHTML = rows.map(s => `
+    <tr>
+      <td>${s.date}</td><td>${s.manager}</td><td>${s.hospitalName}</td><td>${s.productName}</td>
+      <td class="td-right">${fmtNum(s.qty)}</td>
+      <td class="td-right">${fmtNum(s.amount)}원</td>
+      <td class="td-right">${fmtNum(s.settlementAmount)}원</td>
+      <td class="td-right"><strong>${fmtNum(netSettle(s))}원</strong></td>
+    </tr>`).join('') || '<tr><td colspan="8" class="empty-state">조건에 맞는 내역이 없습니다.</td></tr>';
+}
+
+// ========================================
+// SCHEDULE (캘린더) — CRUD + Render
+// ========================================
+async function dbInsertSchedule(s) {
+  const row = scheduleToDb(s); delete row.id;
+  const { error } = await sb.from('schedules').insert(row);
+  if (error) throw error;
+}
+async function dbUpdateSchedule(s) {
+  const { error } = await sb.from('schedules').update(scheduleToDb(s)).eq('id', s.id).eq('user_id', _userId);
+  if (error) throw error;
+}
+async function dbDeleteSchedule(id) {
+  const { error } = await sb.from('schedules').delete().eq('id', id).eq('user_id', _userId);
+  if (error) throw error;
+}
+
+// 사람별 색상 자동 할당 (PERSON_COLORS palette)
+const PERSON_COLORS = ['#00754A','#cba258','#c82014','#5b9ea0','#a16207','#7c2d12','#2b5148','#dfc49d'];
+function personColor(person) {
+  const persons = [...new Set(_schedules.map(s=>s.person).filter(Boolean))].sort();
+  const idx = persons.indexOf(person);
+  return PERSON_COLORS[(idx<0?0:idx) % PERSON_COLORS.length];
+}
+
+function navCalendar(delta) {
+  _calMonth += delta;
+  if (_calMonth < 0)  { _calMonth = 11; _calYear--; }
+  if (_calMonth > 11) { _calMonth = 0;  _calYear++; }
+  renderCalendar();
+}
+function goToday() {
+  const d = new Date();
+  _calYear = d.getFullYear(); _calMonth = d.getMonth();
+  renderCalendar();
+}
+
+function renderCalendar() {
+  // 담당자 필터 옵션
+  const persons = [...new Set(_schedules.map(s=>s.person).filter(Boolean))].sort();
+  const personSel = document.getElementById('cal-person');
+  if (personSel && !personSel.dataset.inited) {
+    personSel.innerHTML = '<option value="">전체</option>' + persons.map(p => `<option value="${p}">${p}</option>`).join('');
+    personSel.dataset.inited = '1';
+  }
+  const personFilter = personSel ? personSel.value : '';
+
+  document.getElementById('cal-title').textContent = `${_calYear}년 ${_calMonth+1}월`;
+
+  // 일정 매핑 (date → events[])
+  const evMap = {};
+  _schedules
+    .filter(s => !personFilter || s.person === personFilter)
+    .forEach(s => { (evMap[s.date] = evMap[s.date] || []).push(s); });
+
+  const firstDay = new Date(_calYear, _calMonth, 1);
+  const lastDay  = new Date(_calYear, _calMonth+1, 0);
+  const startWday = firstDay.getDay();
+  const totalDays = lastDay.getDate();
+  const todayStr = new Date().toISOString().slice(0,10);
+
+  const cells = [];
+  // 요일 헤더
+  const wnames = ['일','월','화','수','목','금','토'];
+  wnames.forEach((w,i) => cells.push(`<div class="cal-head ${i===0?'sun':i===6?'sat':''}">${w}</div>`));
+
+  // 이전 달 빈칸
+  for (let i = 0; i < startWday; i++) {
+    const d = new Date(_calYear, _calMonth, -startWday + i + 1);
+    cells.push(makeCellHtml(d, evMap, true, todayStr));
+  }
+  // 이번 달
+  for (let d = 1; d <= totalDays; d++) {
+    const date = new Date(_calYear, _calMonth, d);
+    cells.push(makeCellHtml(date, evMap, false, todayStr));
+  }
+  // 다음 달 빈칸 (7배수 채움)
+  const totalCellsSoFar = cells.length - 7;
+  const padNext = (7 - (totalCellsSoFar % 7)) % 7;
+  for (let i = 1; i <= padNext; i++) {
+    const date = new Date(_calYear, _calMonth+1, i);
+    cells.push(makeCellHtml(date, evMap, true, todayStr));
+  }
+  document.getElementById('cal-grid').innerHTML = cells.join('');
+
+  // 이번 달 일정 요약 테이블
+  const monthPrefix = `${_calYear}-${String(_calMonth+1).padStart(2,'0')}`;
+  const monthEvents = _schedules
+    .filter(s => (s.date||'').startsWith(monthPrefix) && (!personFilter || s.person===personFilter))
+    .sort((a,b) => a.date.localeCompare(b.date) || (a.startTime||'').localeCompare(b.startTime||''));
+  document.getElementById('cal-tbody').innerHTML = monthEvents.map(s => `
+    <tr>
+      <td>${s.date}</td>
+      <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${personColor(s.person)};margin-right:6px;vertical-align:middle"></span>${s.person}</td>
+      <td><span class="badge badge-gray">${s.scheduleType}</span></td>
+      <td><strong>${s.title}</strong></td>
+      <td>${s.startTime||'-'}${s.endTime?'~'+s.endTime:''}</td>
+      <td>${s.location || '-'}</td>
+      <td>${s.note || '-'}</td>
+      <td class="td-center"><button class="btn btn-outline btn-sm" onclick="openEditSchedule(${s.id})">수정</button></td>
+    </tr>`).join('') || '<tr><td colspan="8" class="empty-state">이번 달 일정이 없습니다.</td></tr>';
+}
+
+function makeCellHtml(date, evMap, otherMonth, todayStr) {
+  const ds = date.toISOString().slice(0,10);
+  const wday = date.getDay();
+  const isToday = ds === todayStr;
+  const events = evMap[ds] || [];
+  const eventHtml = events.slice(0, 3).map(e =>
+    `<div class="cal-event" style="background:${personColor(e.person)}" title="${e.person} - ${e.title}" onclick="event.stopPropagation();openEditSchedule(${e.id})">${e.person ? e.person + '·' : ''}${e.title}</div>`
+  ).join('') + (events.length > 3 ? `<div style="font-size:10px;color:var(--text-muted)">+${events.length-3}건</div>` : '');
+  return `<div class="cal-cell ${otherMonth?'other-month':''} ${isToday?'today':''}" onclick="openAddScheduleOn('${ds}')">
+    <div class="cal-date ${wday===0?'sun':wday===6?'sat':''}">${date.getDate()}</div>
+    ${eventHtml}
+  </div>`;
+}
+
+function openAddSchedule() {
+  const today = new Date().toISOString().slice(0,10);
+  openAddScheduleOn(today);
+}
+function openAddScheduleOn(dateStr) {
+  document.getElementById('cal-modal-title').textContent = '일정 추가';
+  document.getElementById('cal-id').value = '';
+  document.getElementById('cal-f-date').value  = dateStr;
+  ['cal-f-person','cal-f-title','cal-f-start','cal-f-end','cal-f-location','cal-f-note'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('cal-f-type').value   = '외근';
+  document.getElementById('cal-f-shared').value = 'true';
+  document.getElementById('cal-del-btn').style.display = 'none';
+  document.getElementById('modal-schedule').classList.add('active');
+}
+function openEditSchedule(id) {
+  const s = _schedules.find(x => x.id === id);
+  if (!s) return;
+  document.getElementById('cal-modal-title').textContent = '일정 수정';
+  document.getElementById('cal-id').value           = id;
+  document.getElementById('cal-f-date').value       = s.date;
+  document.getElementById('cal-f-person').value     = s.person;
+  document.getElementById('cal-f-type').value       = s.scheduleType || '외근';
+  document.getElementById('cal-f-shared').value     = s.shared ? 'true' : 'false';
+  document.getElementById('cal-f-title').value      = s.title;
+  document.getElementById('cal-f-start').value      = s.startTime || '';
+  document.getElementById('cal-f-end').value        = s.endTime || '';
+  document.getElementById('cal-f-location').value   = s.location || '';
+  document.getElementById('cal-f-note').value       = s.note || '';
+  document.getElementById('cal-del-btn').style.display = 'inline-flex';
+  document.getElementById('modal-schedule').classList.add('active');
+}
+async function saveSchedule() {
+  const idStr = document.getElementById('cal-id').value;
+  const id = idStr ? +idStr : null;
+  const date   = document.getElementById('cal-f-date').value;
+  const person = document.getElementById('cal-f-person').value.trim();
+  const title  = document.getElementById('cal-f-title').value.trim();
+  if (!date || !person || !title) { alert('필수 항목(일자/담당자/제목)을 입력하세요'); return; }
+  const s = {
+    id, date, person, title,
+    scheduleType: document.getElementById('cal-f-type').value,
+    startTime: document.getElementById('cal-f-start').value,
+    endTime: document.getElementById('cal-f-end').value,
+    location: document.getElementById('cal-f-location').value,
+    note: document.getElementById('cal-f-note').value,
+    shared: document.getElementById('cal-f-shared').value === 'true',
+  };
+  try {
+    if (id) await dbUpdateSchedule(s);
+    else    await dbInsertSchedule(s);
+    closeModal('modal-schedule');
+    await loadAllData();
+    // person filter 옵션 갱신을 위해 초기화 후 다시 렌더
+    const ps = document.getElementById('cal-person');
+    if (ps) delete ps.dataset.inited;
+    renderCalendar();
+  } catch(e) { alert('저장 실패: ' + e.message); }
+}
+async function deleteSchedule() {
+  const id = +document.getElementById('cal-id').value;
+  if (!id) return;
+  if (!confirm('이 일정을 삭제할까요?')) return;
+  try {
+    await dbDeleteSchedule(id);
+    closeModal('modal-schedule');
+    await loadAllData();
+    renderCalendar();
+  } catch(e) { alert('삭제 실패: ' + e.message); }
 }
 
 // ========================================
