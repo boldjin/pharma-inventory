@@ -3,9 +3,8 @@ name: 일일 재고 리포트 이메일 발송
 on:
   schedule:
     # KST 07:07 발송 — UTC로는 전날 22:07 → 평일 KST 발송 위해 UTC Sun-Thu(0-4) 사용
-    # 덜 붐비는 분(:07) + 백업(:27)으로 누락 방지, 중복은 daily_email_log로 차단
-    - cron: '7 22 * * 0-4'   # 평일 KST 07:07 — 1차
-    - cron: '27 22 * * 0-4'  # 평일 KST 07:27 — 백업
+    # 백업 cron 제거 — 중복 발송 방지 (지연되더라도 단일 실행 보장)
+    - cron: '7 22 * * 0-4'   # 평일 KST 07:07
   workflow_dispatch:        # 수동 테스트용
 
 jobs:
