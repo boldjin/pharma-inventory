@@ -2260,11 +2260,13 @@ function initSettlementFilters() {
   const hospSel = document.getElementById('set-hospital');
   const prodSel = document.getElementById('set-product');
   if (!mgrSel) return;
+  // 현재 선택값 보존
+  const cur = { mgr: mgrSel.value, hosp: hospSel.value, prod: prodSel.value };
   const mgrs  = [...new Set(_settlements.map(s => s.manager).filter(Boolean))].sort();
   const hosps = [...new Set(_settlements.map(s => s.hospitalName).filter(Boolean))].sort();
-  mgrSel.innerHTML  = '<option value="">전체</option>' + mgrs.map(m => `<option value="${m}">${m}</option>`).join('');
-  hospSel.innerHTML = '<option value="">전체</option>' + hosps.map(h => `<option value="${h}">${h}</option>`).join('');
-  prodSel.innerHTML = '<option value="">전체</option>' + _products.map(p => `<option value="${p.code}">${p.name}</option>`).join('');
+  mgrSel.innerHTML  = '<option value="">전체</option>' + mgrs.map(m => `<option value="${m}" ${m===cur.mgr?'selected':''}>${m}</option>`).join('');
+  hospSel.innerHTML = '<option value="">전체</option>' + hosps.map(h => `<option value="${h}" ${h===cur.hosp?'selected':''}>${h}</option>`).join('');
+  prodSel.innerHTML = '<option value="">전체</option>' + _products.map(p => `<option value="${p.code}" ${p.code===cur.prod?'selected':''}>${p.name}</option>`).join('');
 }
 
 function renderSettlement() {
@@ -2521,15 +2523,20 @@ async function deleteSettlement() {
 // SETTLEMENT DASHBOARD
 // ========================================
 function initSettleDashFilters() {
-  const months = [...new Set(_settlements.map(s => (s.date||'').slice(0,7)))].filter(Boolean).sort().reverse();
   const monthSel = document.getElementById('sd-month');
   if (!monthSel) return;
-  monthSel.innerHTML = '<option value="">전체 기간</option>' + months.map(m => `<option value="${m}">${m}</option>`).join('');
+  const mgrSel  = document.getElementById('sd-manager');
+  const hospSel = document.getElementById('sd-hospital');
+  const prodSel = document.getElementById('sd-product');
+  // 선택값 보존
+  const cur = { month: monthSel.value, mgr: mgrSel.value, hosp: hospSel.value, prod: prodSel.value };
+  const months = [...new Set(_settlements.map(s => (s.date||'').slice(0,7)))].filter(Boolean).sort().reverse();
+  monthSel.innerHTML = '<option value="">전체 기간</option>' + months.map(m => `<option value="${m}" ${m===cur.month?'selected':''}>${m}</option>`).join('');
   const mgrs  = [...new Set(_settlements.map(s => s.manager).filter(Boolean))].sort();
   const hosps = [...new Set(_settlements.map(s => s.hospitalName).filter(Boolean))].sort();
-  document.getElementById('sd-manager').innerHTML  = '<option value="">전체</option>' + mgrs.map(m => `<option value="${m}">${m}</option>`).join('');
-  document.getElementById('sd-hospital').innerHTML = '<option value="">전체</option>' + hosps.map(h => `<option value="${h}">${h}</option>`).join('');
-  document.getElementById('sd-product').innerHTML  = '<option value="">전체</option>' + _products.map(p => `<option value="${p.code}">${p.name}</option>`).join('');
+  mgrSel.innerHTML  = '<option value="">전체</option>' + mgrs.map(m => `<option value="${m}" ${m===cur.mgr?'selected':''}>${m}</option>`).join('');
+  hospSel.innerHTML = '<option value="">전체</option>' + hosps.map(h => `<option value="${h}" ${h===cur.hosp?'selected':''}>${h}</option>`).join('');
+  prodSel.innerHTML = '<option value="">전체</option>' + _products.map(p => `<option value="${p.code}" ${p.code===cur.prod?'selected':''}>${p.name}</option>`).join('');
 }
 function renderSettleDash() {
   initSettleDashFilters();
