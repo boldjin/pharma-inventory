@@ -1021,6 +1021,7 @@ select.form-control { cursor: pointer; }
       <div class="form-group">
         <label class="form-label">개당 정산금액 *</label>
         <input type="number" id="set-f-perunit" class="form-control" min="0" oninput="calcSetAmounts()">
+        <div id="set-f-perunit-hint" style="display:none; font-size:11px; margin-top:4px; letter-spacing:-0.01em;"></div>
       </div>
       <div class="form-group">
         <label class="form-label">정산금액 입력 기준</label>
@@ -2376,6 +2377,24 @@ function lastPerUnitForProduct(code) {
   return recent[0]?.perUnitAmount || 0;
 }
 
+// (품목 × 병원) 조합의 가장 최근 정산 레코드 — 개당정산/마진 lock-in용
+function findPrevByProductHospital(code, hospital) {
+  if (!code || !hospital) return null;
+  const matches = _settlements
+    .filter(s => s.productCode === code && s.hospitalName === hospital && s.perUnitAmount > 0)
+    .sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  return matches[0] || null;
+}
+
+// 편집 중인 settlement id를 prev 매칭에서 제외 (자기 자신 매칭 방지)
+function findPrevByProductHospitalExcl(code, hospital, excludeId) {
+  if (!code || !hospital) return null;
+  const matches = _settlements
+    .filter(s => s.productCode === code && s.hospitalName === hospital && s.perUnitAmount > 0 && s.id !== excludeId)
+    .sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  return matches[0] || null;
+}
+
 function bindSetModalEvents() {
   // 인라인 onchange가 일부 환경에서 미동작하는 경우를 대비해 명시적으로 한 번만 바인딩
   const ids = {
@@ -2457,9 +2476,14 @@ function onSetProdChange() {
     return;
   }
   hs.innerHTML = '<option value="">선택</option>' + partners.map(p => `<option value="${p}">${p}</option>`).join('');
-  // 개당 정산금액은 같은 품목의 직전 기록에서 가져옴
-  const lastPU = lastPerUnitForProduct(code);
-  if (lastPU > 0) document.getElementById('set-f-perunit').value = lastPU;
+  // 병원이 아직 선택 안 됐으므로 개당정산은 빈 상태로 초기화 (병원 선택 후 lock-in)
+  const puEl = document.getElementById('set-f-perunit');
+  const marginEl = document.getElementById('set-f-margin');
+  const hint = document.getElementById('set-f-perunit-hint');
+  puEl.value = ''; marginEl.value = '';
+  puEl.readOnly = false; marginEl.readOnly = false;
+  puEl.style.background = ''; marginEl.style.background = 'var(--bg-soft)';
+  if (hint) hint.style.display = 'none';
 }
 
 function onSetHospChange() {
@@ -2481,7 +2505,47 @@ function onSetHospChange() {
   // 일자는 해당 월의 마지막 매출일 사용
   document.getElementById('set-f-date').value = sales.map(s=>s.date).sort().pop() || (month + '-01');
   document.getElementById('set-f-hospital').value = hosp;
+
+  // (품목 × 병원) 조합의 기존 정산이 있으면 개당정산금액·정산마진·구분 자동 로드 + 잠금
+  applyLockedFieldsForCombo(code, hosp);
   calcSetAmounts();
+}
+
+// (품목 + 병원) 조합으로 기존 데이터 찾아 개당정산/정산마진/구분을 자동 적용
+function applyLockedFieldsForCombo(code, hosp) {
+  const editingId = +document.getElementById('set-id').value || null;
+  const prev = findPrevByProductHospitalExcl(code, hosp, editingId);
+  const puEl     = document.getElementById('set-f-perunit');
+  const marginEl = document.getElementById('set-f-margin');
+  const optEl    = document.getElementById('set-f-option');
+  const hint     = document.getElementById('set-f-perunit-hint');
+
+  if (prev) {
+    // 기존 데이터 있음 — 자동 로드 + 잠금
+    puEl.value     = prev.perUnitAmount;
+    marginEl.value = (prev.marginRate * 100).toFixed(2);
+    optEl.value    = prev.optionType || '프리랜서';
+    puEl.readOnly = true;
+    marginEl.readOnly = true;
+    puEl.style.background = 'var(--bg-tint-primary)';
+    marginEl.style.background = 'var(--bg-tint-primary)';
+    if (hint) {
+      hint.textContent = `🔒 이전 정산(${prev.date}) 기준 자동 적용 — 변경 불가`;
+      hint.style.display = 'block';
+      hint.style.color = 'var(--sb-green-accent)';
+    }
+  } else {
+    // 기존 없음 — 최초 입력
+    puEl.readOnly = false;
+    marginEl.readOnly = false;
+    puEl.style.background = '';
+    marginEl.style.background = 'var(--bg-soft)';  // 자동 계산이긴 하나 수동 입력 가능
+    if (hint) {
+      hint.textContent = '✏ 최초 등록 — 개당 정산금액 직접 입력 (다음부터 자동 적용)';
+      hint.style.display = 'block';
+      hint.style.color = 'var(--warning)';
+    }
+  }
 }
 function openEditSettlement(id) {
   const s = _settlements.find(x => x.id === id);
@@ -2523,7 +2587,11 @@ function openEditSettlement(id) {
   document.getElementById('set-del-btn').style.display = 'inline-flex';
   bindSetModalEvents();
   document.getElementById('modal-settlement').classList.add('active');
-  setTimeout(calcSetAmounts, 0);
+  // 편집 시에도 (품목+병원) 조합 lock 상태 적용 (자기 자신은 제외)
+  setTimeout(() => {
+    applyLockedFieldsForCombo(s.productCode, s.hospitalName);
+    calcSetAmounts();
+  }, 0);
 }
 
 // 사용자가 정산금액을 직접 수정한 경우 호출 — 검증만 실행
