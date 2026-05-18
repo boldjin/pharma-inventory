@@ -2376,6 +2376,28 @@ function lastPerUnitForProduct(code) {
   return recent[0]?.perUnitAmount || 0;
 }
 
+function bindSetModalEvents() {
+  // 인라인 onchange가 일부 환경에서 미동작하는 경우를 대비해 명시적으로 한 번만 바인딩
+  const ids = {
+    'set-f-month':        onSetMonthChange,
+    'set-f-product':      onSetProdChange,
+    'set-f-hospital-sel': onSetHospChange,
+    'set-f-qty':          calcSetAmounts,
+    'set-f-unitprice':    calcSetAmounts,
+    'set-f-perunit':      calcSetAmounts,
+    'set-f-option':       calcSetAmounts,
+    'set-f-taxmode':      calcSetAmounts,
+    'set-f-settle':       onSetSettleEdit,
+  };
+  Object.entries(ids).forEach(([id, fn]) => {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.bound) return;
+    el.addEventListener('change', fn);
+    el.addEventListener('input',  fn);
+    el.dataset.bound = '1';
+  });
+}
+
 function openAddSettlement() {
   document.getElementById('set-modal-title').textContent = '정산 추가';
   document.getElementById('set-id').value = '';
@@ -2389,6 +2411,7 @@ function openAddSettlement() {
   document.getElementById('set-f-taxmode').value = 'gross';
   document.getElementById('set-f-validate').style.display = 'none';
   document.getElementById('set-del-btn').style.display = 'none';
+  bindSetModalEvents();
   document.getElementById('modal-settlement').classList.add('active');
   onSetMonthChange();  // 디폴트 월에 대한 품목 옵션 자동 채움
 }
@@ -2502,6 +2525,7 @@ function openEditSettlement(id) {
   document.getElementById('set-f-note').value    = note.replace(/\s*\[세후입력\]\s*/g, '').trim();
   document.getElementById('set-f-validate').style.display = 'none';
   document.getElementById('set-del-btn').style.display = 'inline-flex';
+  bindSetModalEvents();
   document.getElementById('modal-settlement').classList.add('active');
   setTimeout(calcSetAmounts, 0);
 }
