@@ -1017,8 +1017,15 @@ select.form-control { cursor: pointer; }
         <input type="number" id="set-f-perunit" class="form-control" min="0" oninput="calcSetAmounts()">
       </div>
       <div class="form-group">
-        <label class="form-label">담당자 정산금액 (자동)</label>
-        <input type="number" id="set-f-settle" class="form-control" readonly style="background:var(--bg-soft)">
+        <label class="form-label">정산금액 입력 기준</label>
+        <select id="set-f-taxmode" class="form-control" onchange="calcSetAmounts()">
+          <option value="gross">세전 (자동 차감 적용)</option>
+          <option value="net">세후 (이미 3.3% 차감 반영됨)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" id="set-f-settle-label">담당자 정산금액 (자동)</label>
+        <input type="number" id="set-f-settle" class="form-control" oninput="onSetSettleEdit()">
       </div>
       <div class="form-group">
         <label class="form-label">마진률 (%) (선택)</label>
@@ -1026,8 +1033,9 @@ select.form-control { cursor: pointer; }
       </div>
       <div class="form-group full">
         <label class="form-label">비고</label>
-        <input type="text" id="set-f-note" class="form-control">
+        <input type="text" id="set-f-note" class="form-control" placeholder="자동 표시: [세후입력] 등">
       </div>
+      <div class="form-group full" id="set-f-validate" style="display:none; padding:10px 14px; border-radius:8px; font-size:12px; line-height:1.5;"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-danger" id="set-del-btn" onclick="deleteSettlement()" style="display:none; margin-right:auto;">삭제</button>
@@ -2292,15 +2300,43 @@ function renderSettlement() {
       <td class="td-right">${(s.marginRate*100).toFixed(1)}%</td>
       <td>${s.manager}</td>
       <td class="td-right"><strong>${fmtNum(s.settlementAmount)}원</strong></td>
-      <td><span class="badge ${s.optionType==='프리랜서'?'badge-orange':'badge-green'}">${s.optionType}</span></td>
-      <td>${s.note || '-'}</td>
+      <td><span class="badge ${s.optionType==='프리랜서'?'badge-orange':'badge-green'}">${s.optionType}</span>${isAlreadyNet(s)?' <span class="badge badge-blue">세후입력</span>':''}</td>
+      <td>${(s.note||'').replace(/\[세후입력\]\s*/, '').trim() || '-'}</td>
       <td class="td-center"><button class="btn btn-outline btn-sm" onclick="openEditSettlement(${s.id})">수정</button></td>
     </tr>`).join('') || '<tr><td colspan="14" class="empty-state">등록된 정산 내역이 없습니다.</td></tr>';
 }
 
+// 비고에 [세후입력] 마커 — 이미 3.3% 차감된 값으로 입력된 경우 중복 차감 방지
+function isAlreadyNet(s) { return /\[세후입력\]/.test(s.note || ''); }
+
 function netSettle(s) {
-  // 프리랜서는 3.3% 추가 차감
-  return s.optionType === '프리랜서' ? Math.round(s.settlementAmount * 0.967) : s.settlementAmount;
+  if (isAlreadyNet(s)) return s.settlementAmount;             // 이미 세후값이면 그대로
+  if (s.optionType === '프리랜서') return Math.round(s.settlementAmount * 0.967);
+  return s.settlementAmount;                                  // 사업자는 차감 없음
+}
+
+// 검증: 입력 모드와 금액 정합성 확인
+function validateSettlementInput({ qty, unitPrice, perUnitAmount, settlementAmount, taxMode, optionType }) {
+  const errors = [];
+  const warns  = [];
+  if (qty <= 0) errors.push('수량은 0보다 커야 합니다');
+  if (unitPrice <= 0) warns.push('병원 납품가가 0원입니다');
+  if (perUnitAmount <= 0) errors.push('개당 정산금액은 0보다 커야 합니다');
+
+  const expectedGross = qty * perUnitAmount;
+  const expectedNet   = optionType === '프리랜서' ? Math.round(expectedGross * 0.967) : expectedGross;
+  const tolerance = Math.max(2, Math.round(expectedGross * 0.002)); // 0.2% 허용
+
+  if (taxMode === 'gross') {
+    if (Math.abs(settlementAmount - expectedGross) > tolerance) {
+      errors.push(`세전 모드: 정산금액(${fmtNum(settlementAmount)}) ≠ 수량×개당(${fmtNum(expectedGross)})`);
+    }
+  } else { // net
+    if (Math.abs(settlementAmount - expectedNet) > tolerance) {
+      errors.push(`세후 모드: 정산금액(${fmtNum(settlementAmount)}) ≠ 수량×개당×${optionType==='프리랜서'?'0.967':'1'}(${fmtNum(expectedNet)})`);
+    }
+  }
+  return { errors, warns, expectedGross, expectedNet };
 }
 
 // KST 기준 YYYY-MM-DD (UTC ISO 사용 시 자정 전후 하루 차이 발생 방지)
@@ -2327,6 +2363,8 @@ function openAddSettlement() {
   const ps = document.getElementById('set-f-product');
   ps.innerHTML = '<option value="">선택</option>' + _products.map(p => `<option value="${p.code}|${p.name}">${p.code} - ${p.name}</option>`).join('');
   document.getElementById('set-f-option').value = '프리랜서';
+  document.getElementById('set-f-taxmode').value = 'gross';
+  document.getElementById('set-f-validate').style.display = 'none';
   document.getElementById('set-del-btn').style.display = 'none';
   document.getElementById('modal-settlement').classList.add('active');
 }
@@ -2348,18 +2386,44 @@ function openEditSettlement(id) {
   document.getElementById('set-f-perunit').value   = s.perUnitAmount;
   document.getElementById('set-f-settle').value    = s.settlementAmount;
   document.getElementById('set-f-margin').value    = (s.marginRate*100).toFixed(2);
-  document.getElementById('set-f-note').value      = s.note || '';
+  // 비고에서 [세후입력] 마커 추출
+  const note = s.note || '';
+  const isNet = /\[세후입력\]/.test(note);
+  document.getElementById('set-f-taxmode').value = isNet ? 'net' : 'gross';
+  document.getElementById('set-f-note').value    = note.replace(/\s*\[세후입력\]\s*/g, '').trim();
+  document.getElementById('set-f-validate').style.display = 'none';
   document.getElementById('set-del-btn').style.display = 'inline-flex';
   document.getElementById('modal-settlement').classList.add('active');
+  // 진입 시 자동 검증 1회
+  setTimeout(calcSetAmounts, 0);
 }
 function onSetProdChange() { calcSetAmounts(); }
+
+// 사용자가 정산금액을 직접 수정한 경우 호출 — 검증만 실행
+function onSetSettleEdit() {
+  showSetValidation();
+}
+
 function calcSetAmounts() {
   const qty = +document.getElementById('set-f-qty').value || 0;
   const up  = +document.getElementById('set-f-unitprice').value || 0;
   const pu  = +document.getElementById('set-f-perunit').value || 0;
+  const taxMode = document.getElementById('set-f-taxmode').value;
+  const optionType = document.getElementById('set-f-option').value;
   document.getElementById('set-f-amount').value = qty * up;
-  document.getElementById('set-f-settle').value = qty * pu;
-  // 마진률 자동 계산: 평균 매입단가가 있으면
+
+  // 정산금액 라벨 동적 변경
+  const label = document.getElementById('set-f-settle-label');
+  if (taxMode === 'net') {
+    label.textContent = '담당자 정산금액 (세후 자동)';
+    const gross = qty * pu;
+    const net   = optionType === '프리랜서' ? Math.round(gross * 0.967) : gross;
+    document.getElementById('set-f-settle').value = net;
+  } else {
+    label.textContent = '담당자 정산금액 (세전 자동)';
+    document.getElementById('set-f-settle').value = qty * pu;
+  }
+  // 마진률 자동 계산
   const prodVal = document.getElementById('set-f-product').value;
   if (prodVal && up > 0) {
     const code = prodVal.split('|')[0];
@@ -2368,6 +2432,35 @@ function calcSetAmounts() {
       const margin = ((up - avg) / up * 100).toFixed(2);
       document.getElementById('set-f-margin').value = margin;
     }
+  }
+  showSetValidation();
+}
+
+function showSetValidation() {
+  const box = document.getElementById('set-f-validate');
+  if (!box) return;
+  const params = {
+    qty: +document.getElementById('set-f-qty').value || 0,
+    unitPrice: +document.getElementById('set-f-unitprice').value || 0,
+    perUnitAmount: +document.getElementById('set-f-perunit').value || 0,
+    settlementAmount: +document.getElementById('set-f-settle').value || 0,
+    taxMode: document.getElementById('set-f-taxmode').value,
+    optionType: document.getElementById('set-f-option').value,
+  };
+  if (params.qty === 0 && params.perUnitAmount === 0) { box.style.display = 'none'; return; }
+  const r = validateSettlementInput(params);
+  if (r.errors.length === 0 && r.warns.length === 0) {
+    box.style.display = 'block';
+    box.style.background = 'var(--success-bg)';
+    box.style.color = 'var(--success)';
+    box.style.border = '1px solid var(--success)';
+    box.innerHTML = `✓ 검증 통과 — 세전 ${fmtNum(r.expectedGross)}원 / 세후 ${fmtNum(r.expectedNet)}원`;
+  } else {
+    box.style.display = 'block';
+    box.style.background = r.errors.length ? 'var(--danger-bg)' : 'var(--warning-bg)';
+    box.style.color = r.errors.length ? 'var(--danger)' : 'var(--warning)';
+    box.style.border = '1px solid ' + (r.errors.length ? 'var(--danger)' : 'var(--warning)');
+    box.innerHTML = [...r.errors.map(e => '⚠ ' + e), ...r.warns.map(w => '· ' + w)].join('<br>');
   }
 }
 async function saveSettlement() {
@@ -2382,13 +2475,27 @@ async function saveSettlement() {
   const qty = +document.getElementById('set-f-qty').value || 0;
   const up  = +document.getElementById('set-f-unitprice').value || 0;
   const pu  = +document.getElementById('set-f-perunit').value || 0;
+  const settle = +document.getElementById('set-f-settle').value || 0;
   const marginPct = +document.getElementById('set-f-margin').value || 0;
+  const taxMode = document.getElementById('set-f-taxmode').value;
+  const optionType = document.getElementById('set-f-option').value;
+  const userNote = document.getElementById('set-f-note').value.replace(/\s*\[세후입력\]\s*/g, '').trim();
+
+  // 검증
+  const v = validateSettlementInput({ qty, unitPrice: up, perUnitAmount: pu, settlementAmount: settle, taxMode, optionType });
+  if (v.errors.length > 0) {
+    if (!confirm('금액 검증 오류:\n' + v.errors.join('\n') + '\n\n그래도 저장할까요?')) return;
+  }
+  // 세후 모드면 비고에 마커 추가 (중복 차감 방지)
+  const finalNote = taxMode === 'net' ? (userNote ? `[세후입력] ${userNote}` : '[세후입력]') : userNote;
+
   const s = {
     id, date, hospitalName: hospital, productCode: code, productName: name,
-    qty, unitPrice: up, amount: qty*up, perUnitAmount: pu, settlementAmount: qty*pu,
+    qty, unitPrice: up, amount: qty*up,
+    perUnitAmount: pu,
+    settlementAmount: settle,
     marginRate: marginPct / 100, manager,
-    optionType: document.getElementById('set-f-option').value,
-    note: document.getElementById('set-f-note').value,
+    optionType, note: finalNote,
   };
   try {
     if (id) await dbUpdateSettlement(s);
