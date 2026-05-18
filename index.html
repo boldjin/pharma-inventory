@@ -2309,7 +2309,7 @@ function renderSettlement() {
       <td class="td-right">${fmtNum(s.unitPrice)}원</td>
       <td class="td-right">${fmtNum(s.amount)}원</td>
       <td class="td-right">${fmtNum(s.perUnitAmount)}원</td>
-      <td class="td-right">${(s.marginRate*100).toFixed(1)}%</td>
+      <td class="td-right">${(settlementMarginRate(s)*100).toFixed(1)}%</td>
       <td>${s.manager}</td>
       <td class="td-right"><strong>${fmtNum(s.settlementAmount)}원</strong></td>
       <td><span class="badge ${s.optionType==='프리랜서'?'badge-orange':'badge-green'}">${s.optionType}</span>${isAlreadyNet(s)?' <span class="badge badge-blue">세후입력</span>':''}</td>
@@ -2320,6 +2320,11 @@ function renderSettlement() {
 
 // 비고에 [세후입력] 마커 — 이미 3.3% 차감된 값으로 입력된 경우 중복 차감 방지
 function isAlreadyNet(s) { return /\[세후입력\]/.test(s.note || ''); }
+
+// 정산 마진율 = 개당 정산금액 / 병원 납품가 (개당)
+function settlementMarginRate(s) {
+  return s.unitPrice > 0 ? (s.perUnitAmount / s.unitPrice) : 0;
+}
 
 function netSettle(s) {
   if (isAlreadyNet(s)) return s.settlementAmount;             // 이미 세후값이면 그대로
@@ -2578,7 +2583,7 @@ function openEditSettlement(id) {
   document.getElementById('set-f-amount').value    = s.amount;
   document.getElementById('set-f-perunit').value   = s.perUnitAmount;
   document.getElementById('set-f-settle').value    = s.settlementAmount;
-  document.getElementById('set-f-margin').value    = (s.marginRate*100).toFixed(2);
+  document.getElementById('set-f-margin').value    = (settlementMarginRate(s)*100).toFixed(2);
   const note = s.note || '';
   const isNet = /\[세후입력\]/.test(note);
   document.getElementById('set-f-taxmode').value = isNet ? 'net' : 'gross';
@@ -2618,15 +2623,11 @@ function calcSetAmounts() {
     label.textContent = '담당자 정산금액 (세전 자동)';
     document.getElementById('set-f-settle').value = qty * pu;
   }
-  // 마진률 자동 계산
-  const prodVal = document.getElementById('set-f-product').value;
-  if (prodVal && up > 0) {
-    const code = prodVal.split('|')[0];
-    const avg = calcAvgBuyPrice(code);
-    if (avg > 0) {
-      const margin = ((up - avg) / up * 100).toFixed(2);
-      document.getElementById('set-f-margin').value = margin;
-    }
+  // 정산 마진 자동 계산 — 개당 정산금액 / 병원 납품가 (개당)
+  if (up > 0 && pu > 0) {
+    document.getElementById('set-f-margin').value = (pu / up * 100).toFixed(2);
+  } else {
+    document.getElementById('set-f-margin').value = '';
   }
   showSetValidation();
 }
@@ -2696,7 +2697,7 @@ async function saveSettlement() {
     qty, unitPrice: up, amount: qty*up,
     perUnitAmount: pu,
     settlementAmount: settle,
-    marginRate: marginPct / 100, manager,
+    marginRate: up > 0 ? (pu / up) : 0, manager,
     optionType, note: finalNote,
   };
   try {
@@ -2759,7 +2760,7 @@ function renderSettleDash() {
     <div class="kpi-card"><div class="kpi-label">총 매출액</div><div class="kpi-value">${fmtNum(sumAmt)}원</div><div class="kpi-sub">${rows.length}건</div></div>
     <div class="kpi-card green"><div class="kpi-label">총 정산금액</div><div class="kpi-value">${fmtNum(sumSet)}원</div><div class="kpi-sub">담당자 ${mgrCnt}명</div></div>
     <div class="kpi-card orange"><div class="kpi-label">세후 정산액 합계</div><div class="kpi-value">${fmtNum(sumNet)}원</div><div class="kpi-sub">프리랜서 원천징수 3.3% 차감 반영</div></div>
-    <div class="kpi-card red"><div class="kpi-label">평균 정산 마진</div><div class="kpi-value">${rows.length? (rows.reduce((a,s)=>a+s.marginRate,0)/rows.length*100).toFixed(1):0}%</div><div class="kpi-sub">조건 일치 평균</div></div>`;
+    <div class="kpi-card red"><div class="kpi-label">평균 정산 마진</div><div class="kpi-value">${rows.length? (rows.reduce((a,s)=>a+settlementMarginRate(s),0)/rows.length*100).toFixed(1):0}%</div><div class="kpi-sub">조건 일치 평균</div></div>`;
 
   // 담당자별 정산금액 차트
   const byMgr = {};
