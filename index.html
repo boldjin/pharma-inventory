@@ -601,7 +601,7 @@ select.form-control { cursor: pointer; }
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>일자</th><th>품목명</th><th>병원</th><th class="td-right">수량</th><th class="td-right">단가</th><th class="td-right">금액</th><th class="td-right">매입단가</th><th class="td-right">마진</th><th>담당자</th></tr></thead>
+          <thead><tr><th>일자</th><th>품목명</th><th>병원</th><th class="td-right">수량</th><th class="td-right">단가</th><th class="td-right">금액</th><th class="td-right">매입단가</th><th class="td-right">매출이익</th><th>담당자</th></tr></thead>
           <tbody id="sal-tbody"></tbody>
         </table>
       </div>
@@ -1884,7 +1884,7 @@ function renderSales() {
   document.getElementById('sal-chips').innerHTML = `
     <div class="trend-chip green">총 매출금액: ${fmtWon(totalAmt)}</div>
     <div class="trend-chip">총 매출수량: ${fmtNum(totalQty)}</div>
-    <div class="trend-chip">마진: ${fmtWon(margin)} (${marginRate}%)</div>
+    <div class="trend-chip">매출이익: ${fmtWon(margin)} (${marginRate}%)</div>
     <div class="trend-chip">거래 건수: ${txns.length}건</div>`;
 
   const allMonths   = getMonths();
