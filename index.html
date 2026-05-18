@@ -996,7 +996,7 @@ select.form-control { cursor: pointer; }
       </div>
       <div class="form-group">
         <label class="form-label">납품수량 *</label>
-        <input type="number" id="set-f-qty" class="form-control" min="0" oninput="calcSetAmounts()">
+        <input type="text" inputmode="numeric" id="set-f-qty" class="form-control" placeholder="0">
       </div>
       <!-- 자동 채워지는 정보 -->
       <div class="form-group">
@@ -1012,15 +1012,15 @@ select.form-control { cursor: pointer; }
       </div>
       <div class="form-group">
         <label class="form-label">병원 납품가 (개당)</label>
-        <input type="number" id="set-f-unitprice" class="form-control" min="0" oninput="calcSetAmounts()" style="background:var(--bg-soft)">
+        <input type="text" inputmode="numeric" id="set-f-unitprice" class="form-control" placeholder="0" style="background:var(--bg-soft)">
       </div>
       <div class="form-group">
         <label class="form-label">매출액 (자동)</label>
-        <input type="number" id="set-f-amount" class="form-control" readonly style="background:var(--bg-soft)">
+        <input type="text" inputmode="numeric" id="set-f-amount" class="form-control" readonly style="background:var(--bg-soft)">
       </div>
       <div class="form-group">
         <label class="form-label">개당 정산금액 *</label>
-        <input type="number" id="set-f-perunit" class="form-control" min="0" oninput="calcSetAmounts()">
+        <input type="text" inputmode="numeric" id="set-f-perunit" class="form-control" placeholder="0">
         <div id="set-f-perunit-hint" style="display:none; font-size:11px; margin-top:4px; letter-spacing:-0.01em;"></div>
       </div>
       <div class="form-group">
@@ -1032,7 +1032,7 @@ select.form-control { cursor: pointer; }
       </div>
       <div class="form-group">
         <label class="form-label" id="set-f-settle-label">담당자 정산금액 (자동)</label>
-        <input type="number" id="set-f-settle" class="form-control" oninput="onSetSettleEdit()">
+        <input type="text" inputmode="numeric" id="set-f-settle" class="form-control" placeholder="0">
       </div>
       <div class="form-group">
         <label class="form-label">정산 마진 (%)</label>
@@ -2326,6 +2326,37 @@ function settlementMarginRate(s) {
   return s.unitPrice > 0 ? (s.perUnitAmount / s.unitPrice) : 0;
 }
 
+// 콤마 포함 텍스트 input 헬퍼 (정산 모달 금액 필드용)
+function setNumI(id, val) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (val === '' || val === null || val === undefined || isNaN(val)) { el.value = ''; return; }
+  el.value = Number(val).toLocaleString('ko-KR');
+}
+function getNumI(id) {
+  const el = document.getElementById(id);
+  if (!el) return 0;
+  return Number(String(el.value).replace(/[^\d.-]/g, '')) || 0;
+}
+function attachCommaFormat(ids) {
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.comma) return;
+    el.addEventListener('input', () => {
+      const raw = String(el.value).replace(/[^\d.-]/g, '');
+      const num = Number(raw);
+      if (raw === '' || raw === '-') { el.value = raw; }
+      else if (!isNaN(num)) {
+        const cursorAtEnd = el.selectionStart === el.value.length;
+        el.value = num.toLocaleString('ko-KR');
+        if (cursorAtEnd) el.setSelectionRange(el.value.length, el.value.length);
+      }
+      if (typeof calcSetAmounts === 'function') calcSetAmounts();
+    });
+    el.dataset.comma = '1';
+  });
+}
+
 function netSettle(s) {
   if (isAlreadyNet(s)) return s.settlementAmount;             // 이미 세후값이면 그대로
   if (s.optionType === '프리랜서') return Math.round(s.settlementAmount * 0.967);
@@ -2401,23 +2432,21 @@ function findPrevByProductHospitalExcl(code, hospital, excludeId) {
 }
 
 function bindSetModalEvents() {
-  // 인라인 onchange가 일부 환경에서 미동작하는 경우를 대비해 명시적으로 한 번만 바인딩
+  // 콤마 포맷팅 (input 이벤트 핸들러를 우선 부착 — 내부에서 calcSetAmounts 호출함)
+  attachCommaFormat(['set-f-qty','set-f-unitprice','set-f-perunit','set-f-settle','set-f-amount']);
+  // 그 외 변경 이벤트
   const ids = {
     'set-f-month':        onSetMonthChange,
     'set-f-product':      onSetProdChange,
     'set-f-hospital-sel': onSetHospChange,
-    'set-f-qty':          calcSetAmounts,
-    'set-f-unitprice':    calcSetAmounts,
-    'set-f-perunit':      calcSetAmounts,
     'set-f-option':       calcSetAmounts,
     'set-f-taxmode':      calcSetAmounts,
-    'set-f-settle':       onSetSettleEdit,
+    'set-f-settle':       onSetSettleEdit,  // settle은 직접 수정도 가능
   };
   Object.entries(ids).forEach(([id, fn]) => {
     const el = document.getElementById(id);
     if (!el || el.dataset.bound) return;
     el.addEventListener('change', fn);
-    el.addEventListener('input',  fn);
     el.dataset.bound = '1';
   });
 }
@@ -2502,7 +2531,7 @@ function onSetHospChange() {
   // 수량/담당자/일자만 매출에서 자동 채움 (병원납품가는 정산 고유값이라 별도)
   const totalQty = sales.reduce((a,s)=>a+s.qty, 0);
   const managers = [...new Set(sales.map(s=>s.manager).filter(Boolean))];
-  document.getElementById('set-f-qty').value     = totalQty;
+  setNumI('set-f-qty', totalQty);
   document.getElementById('set-f-manager').value = managers.join(', ');
   document.getElementById('set-f-date').value    = sales.map(s=>s.date).sort().pop() || (month + '-01');
   document.getElementById('set-f-hospital').value = hosp;
@@ -2525,8 +2554,8 @@ function applyLockedFieldsForCombo(code, hosp) {
 
   if (prev) {
     // 기존 데이터 있음 — 자동 로드 + 잠금 (병원납품가 / 개당정산 / 정산마진)
-    upEl.value     = prev.unitPrice;
-    puEl.value     = prev.perUnitAmount;
+    setNumI('set-f-unitprice', prev.unitPrice);
+    setNumI('set-f-perunit',   prev.perUnitAmount);
     marginEl.value = (settlementMarginRate(prev) * 100).toFixed(2);
     optEl.value    = prev.optionType || '프리랜서';
     upEl.readOnly = true;
@@ -2581,11 +2610,11 @@ function openEditSettlement(id) {
   const partners = [...new Set([s.hospitalName, ...monthSales.filter(x=>x.productCode===s.productCode).map(x=>x.partner)].filter(Boolean))].sort();
   hs.innerHTML = partners.map(p => `<option value="${p}">${p}</option>`).join('');
   hs.value = s.hospitalName;
-  document.getElementById('set-f-qty').value       = s.qty;
-  document.getElementById('set-f-unitprice').value = s.unitPrice;
-  document.getElementById('set-f-amount').value    = s.amount;
-  document.getElementById('set-f-perunit').value   = s.perUnitAmount;
-  document.getElementById('set-f-settle').value    = s.settlementAmount;
+  setNumI('set-f-qty',       s.qty);
+  setNumI('set-f-unitprice', s.unitPrice);
+  setNumI('set-f-amount',    s.amount);
+  setNumI('set-f-perunit',   s.perUnitAmount);
+  setNumI('set-f-settle',    s.settlementAmount);
   document.getElementById('set-f-margin').value    = (settlementMarginRate(s)*100).toFixed(2);
   const note = s.note || '';
   const isNet = /\[세후입력\]/.test(note);
@@ -2608,12 +2637,12 @@ function onSetSettleEdit() {
 }
 
 function calcSetAmounts() {
-  const qty = +document.getElementById('set-f-qty').value || 0;
-  const up  = +document.getElementById('set-f-unitprice').value || 0;
-  const pu  = +document.getElementById('set-f-perunit').value || 0;
+  const qty = getNumI('set-f-qty');
+  const up  = getNumI('set-f-unitprice');
+  const pu  = getNumI('set-f-perunit');
   const taxMode = document.getElementById('set-f-taxmode').value;
   const optionType = document.getElementById('set-f-option').value;
-  document.getElementById('set-f-amount').value = qty * up;
+  setNumI('set-f-amount', qty * up);
 
   // 정산금액 라벨 동적 변경
   const label = document.getElementById('set-f-settle-label');
@@ -2621,10 +2650,10 @@ function calcSetAmounts() {
     label.textContent = '담당자 정산금액 (세후 자동)';
     const gross = qty * pu;
     const net   = optionType === '프리랜서' ? Math.round(gross * 0.967) : gross;
-    document.getElementById('set-f-settle').value = net;
+    setNumI('set-f-settle', net);
   } else {
     label.textContent = '담당자 정산금액 (세전 자동)';
-    document.getElementById('set-f-settle').value = qty * pu;
+    setNumI('set-f-settle', qty * pu);
   }
   // 정산 마진 자동 계산 — 개당 정산금액 / 병원 납품가 (개당)
   if (up > 0 && pu > 0) {
@@ -2639,10 +2668,10 @@ function showSetValidation() {
   const box = document.getElementById('set-f-validate');
   if (!box) return;
   const params = {
-    qty: +document.getElementById('set-f-qty').value || 0,
-    unitPrice: +document.getElementById('set-f-unitprice').value || 0,
-    perUnitAmount: +document.getElementById('set-f-perunit').value || 0,
-    settlementAmount: +document.getElementById('set-f-settle').value || 0,
+    qty: getNumI('set-f-qty'),
+    unitPrice: getNumI('set-f-unitprice'),
+    perUnitAmount: getNumI('set-f-perunit'),
+    settlementAmount: getNumI('set-f-settle'),
     taxMode: document.getElementById('set-f-taxmode').value,
     optionType: document.getElementById('set-f-option').value,
   };
@@ -2668,7 +2697,7 @@ async function saveSettlement() {
   const month = document.getElementById('set-f-month').value;          // YYYY-MM
   const prodVal = document.getElementById('set-f-product').value;
   const hospital = document.getElementById('set-f-hospital-sel').value || document.getElementById('set-f-hospital').value;
-  const qty = +document.getElementById('set-f-qty').value || 0;
+  const qty = getNumI('set-f-qty');
   if (!month || !prodVal || !hospital || qty <= 0) { alert('필수 항목(월/품목/병원/수량)을 입력하세요'); return; }
   // 일자는 매출에서 추출된 값 우선, 없으면 월의 마지막 매출일, 그것도 없으면 1일
   let date = document.getElementById('set-f-date').value;
@@ -2679,9 +2708,9 @@ async function saveSettlement() {
   }
   const manager = document.getElementById('set-f-manager').value.trim();
   const [code, name] = prodVal.split('|');
-  const up  = +document.getElementById('set-f-unitprice').value || 0;
-  const pu  = +document.getElementById('set-f-perunit').value || 0;
-  const settle = +document.getElementById('set-f-settle').value || 0;
+  const up  = getNumI('set-f-unitprice');
+  const pu  = getNumI('set-f-perunit');
+  const settle = getNumI('set-f-settle');
   const marginPct = +document.getElementById('set-f-margin').value || 0;
   const taxMode = document.getElementById('set-f-taxmode').value;
   const optionType = document.getElementById('set-f-option').value;
