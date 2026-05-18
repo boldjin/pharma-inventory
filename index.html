@@ -1011,8 +1011,8 @@ select.form-control { cursor: pointer; }
         </select>
       </div>
       <div class="form-group">
-        <label class="form-label">병원 납품가 (개당)</label>
-        <input type="text" inputmode="numeric" id="set-f-unitprice" class="form-control" placeholder="0" style="background:var(--bg-soft)">
+        <label class="form-label">병원 납품가 (개당, 매출 자동)</label>
+        <input type="text" inputmode="numeric" id="set-f-unitprice" class="form-control" readonly placeholder="병원 선택 시 자동" style="background:var(--bg-soft)">
       </div>
       <div class="form-group">
         <label class="form-label">매출액 (자동)</label>
@@ -2528,57 +2528,53 @@ function onSetHospChange() {
   const code = prodV.split('|')[0];
   const sales = salesInMonth(month).filter(s => s.productCode === code && s.partner === hosp);
   if (sales.length === 0) return;
-  // 수량/담당자/일자만 매출에서 자동 채움 (병원납품가는 정산 고유값이라 별도)
+  // 수량/단가(가중평균)/담당자/일자 — 매출현황에서 자동 채움
   const totalQty = sales.reduce((a,s)=>a+s.qty, 0);
+  const totalAmt = sales.reduce((a,s)=>a+s.amount, 0);
+  const avgUP    = totalQty > 0 ? Math.round(totalAmt / totalQty) : 0;
   const managers = [...new Set(sales.map(s=>s.manager).filter(Boolean))];
   setNumI('set-f-qty', totalQty);
+  setNumI('set-f-unitprice', avgUP);
   document.getElementById('set-f-manager').value = managers.join(', ');
   document.getElementById('set-f-date').value    = sales.map(s=>s.date).sort().pop() || (month + '-01');
   document.getElementById('set-f-hospital').value = hosp;
 
-  // (품목 × 병원) 조합의 기존 정산 — 있으면 병원납품가/개당정산/정산마진 자동 로드 + 잠금
-  // 없으면 빈 값으로 두고 사용자가 직접 입력 (병원납품가는 매출 단가와 다른 정산 고유값)
+  // 개당정산/정산마진만 (품목 × 병원) 기준 잠금 (병원납품가는 매출에서 자동)
   applyLockedFieldsForCombo(code, hosp);
   calcSetAmounts();
 }
 
-// (품목 + 병원) 조합으로 기존 데이터 찾아 병원납품가/개당정산/정산마진/구분을 자동 적용
+// (품목 + 병원) 조합으로 기존 데이터 찾아 개당정산/구분을 자동 적용 (병원납품가는 매출에서 자동)
 function applyLockedFieldsForCombo(code, hosp) {
   const editingId = +document.getElementById('set-id').value || null;
   const prev = findPrevByProductHospitalExcl(code, hosp, editingId);
-  const upEl     = document.getElementById('set-f-unitprice');
   const puEl     = document.getElementById('set-f-perunit');
   const marginEl = document.getElementById('set-f-margin');
   const optEl    = document.getElementById('set-f-option');
   const hint     = document.getElementById('set-f-perunit-hint');
 
   if (prev) {
-    // 기존 데이터 있음 — 자동 로드 + 잠금 (병원납품가 / 개당정산 / 정산마진)
-    setNumI('set-f-unitprice', prev.unitPrice);
-    setNumI('set-f-perunit',   prev.perUnitAmount);
-    marginEl.value = (settlementMarginRate(prev) * 100).toFixed(2);
+    // 기존 데이터 있음 — 개당정산 자동 로드 + 잠금
+    setNumI('set-f-perunit', prev.perUnitAmount);
     optEl.value    = prev.optionType || '프리랜서';
-    upEl.readOnly = true;
     puEl.readOnly = true;
+    puEl.style.background = 'var(--bg-tint-primary)';
+    // 마진은 항상 계산값이므로 잠금만
     marginEl.readOnly = true;
-    upEl.style.background     = 'var(--bg-tint-primary)';
-    puEl.style.background     = 'var(--bg-tint-primary)';
-    marginEl.style.background = 'var(--bg-tint-primary)';
+    marginEl.style.background = 'var(--bg-soft)';
     if (hint) {
-      hint.textContent = `🔒 이전 정산(${prev.date}) 기준 자동 적용 — 병원납품가·개당정산·정산마진 변경 불가`;
+      hint.textContent = `🔒 이전 정산(${prev.date}) 기준 자동 적용 — 개당 정산금액 변경 불가`;
       hint.style.display = 'block';
       hint.style.color = 'var(--sb-green-accent)';
     }
   } else {
-    // 기존 없음 — 최초 입력 (병원납품가/개당정산 직접 입력)
-    upEl.readOnly = false;
+    // 기존 없음 — 개당정산 최초 입력
     puEl.readOnly = false;
-    marginEl.readOnly = false;
-    upEl.style.background     = '';
-    puEl.style.background     = '';
+    puEl.style.background = '';
+    marginEl.readOnly = true;  // 마진은 자동 계산값
     marginEl.style.background = 'var(--bg-soft)';
     if (hint) {
-      hint.textContent = '✏ 최초 등록 — 병원 납품가 · 개당 정산금액 직접 입력 (다음부터 자동 적용)';
+      hint.textContent = '✏ 최초 등록 — 개당 정산금액 직접 입력 (다음부터 자동 적용)';
       hint.style.display = 'block';
       hint.style.color = 'var(--warning)';
     }
