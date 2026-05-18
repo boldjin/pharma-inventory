@@ -2528,13 +2528,13 @@ function onSetHospChange() {
   const code = prodV.split('|')[0];
   const sales = salesInMonth(month).filter(s => s.productCode === code && s.partner === hosp);
   if (sales.length === 0) return;
-  // 수량/단가(가중평균)/담당자/일자 — 매출현황에서 자동 채움
+  // 수량 합산, 단가는 가장 최근 매출 단가 그대로, 담당자/일자 자동 채움
   const totalQty = sales.reduce((a,s)=>a+s.qty, 0);
-  const totalAmt = sales.reduce((a,s)=>a+s.amount, 0);
-  const avgUP    = totalQty > 0 ? Math.round(totalAmt / totalQty) : 0;
+  const latest   = [...sales].sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];
+  const unitPrice = latest?.unitPrice || 0;
   const managers = [...new Set(sales.map(s=>s.manager).filter(Boolean))];
   setNumI('set-f-qty', totalQty);
-  setNumI('set-f-unitprice', avgUP);
+  setNumI('set-f-unitprice', unitPrice);
   document.getElementById('set-f-manager').value = managers.join(', ');
   document.getElementById('set-f-date').value    = sales.map(s=>s.date).sort().pop() || (month + '-01');
   document.getElementById('set-f-hospital').value = hosp;
