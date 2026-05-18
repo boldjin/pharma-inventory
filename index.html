@@ -755,6 +755,14 @@ select.form-control { cursor: pointer; }
         <div class="card-title">병원별 매출/정산 비중</div>
         <div class="chart-wrap"><canvas id="chart-sd-hosp"></canvas></div>
       </div>
+      <div class="card">
+        <div class="card-title">월별 매출 / 정산 추이</div>
+        <div class="chart-wrap"><canvas id="chart-sd-month"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">품목별 매출 / 정산 비교</div>
+        <div class="chart-wrap"><canvas id="chart-sd-prod"></canvas></div>
+      </div>
     </div>
     <div class="card">
       <div class="card-title">상세 내역 (조건 일치)</div>
@@ -2457,6 +2465,45 @@ function renderSettleDash() {
     type: 'doughnut',
     data: { labels: Object.keys(byHosp), datasets: [{ data: Object.values(byHosp), backgroundColor: HOSPITAL_COLORS.slice(0, Object.keys(byHosp).length), borderColor: 'var(--bg-card)', borderWidth: 2 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
+  });
+
+  // 월별 추이 (매출/정산)
+  const monthSet = [...new Set(rows.map(r => (r.date||'').slice(0,7)).filter(Boolean))].sort();
+  const monthAmt = monthSet.map(m => rows.filter(r => r.date.startsWith(m)).reduce((a,r)=>a+r.amount, 0));
+  const monthSet2 = monthSet.map(m => rows.filter(r => r.date.startsWith(m)).reduce((a,r)=>a+r.settlementAmount, 0));
+  destroyChart('sd-month');
+  charts['sd-month'] = new Chart(document.getElementById('chart-sd-month').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: monthSet.map(m => { const [,mo] = m.split('-'); return `${parseInt(mo)}월`; }),
+      datasets: [
+        { label: '매출액', data: monthAmt, backgroundColor: 'rgba(0,117,74,0.55)', borderColor: '#00754A', borderWidth: 2, borderRadius: 4, order: 2 },
+        { label: '정산금액', data: monthSet2, type: 'line', borderColor: '#cba258', backgroundColor: '#cba258', borderWidth: 2.5, pointRadius: 4, pointBackgroundColor: '#cba258', tension: 0.3, order: 1 },
+      ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true, ticks: { callback: v=>fmtNum(v) } } } }
+  });
+
+  // 품목별 매출/정산 비교 (가로 막대)
+  const prodAgg = {};
+  rows.forEach(r => {
+    const key = r.productName || r.productCode;
+    if (!prodAgg[key]) prodAgg[key] = { amount: 0, settle: 0 };
+    prodAgg[key].amount += r.amount;
+    prodAgg[key].settle += r.settlementAmount;
+  });
+  const prodLabels = Object.keys(prodAgg);
+  destroyChart('sd-prod');
+  charts['sd-prod'] = new Chart(document.getElementById('chart-sd-prod').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: prodLabels,
+      datasets: [
+        { label: '매출액', data: prodLabels.map(k => prodAgg[k].amount), backgroundColor: 'rgba(0,117,74,0.55)', borderColor: '#00754A', borderWidth: 2, borderRadius: 4 },
+        { label: '정산금액', data: prodLabels.map(k => prodAgg[k].settle), backgroundColor: 'rgba(203,162,88,0.55)', borderColor: '#cba258', borderWidth: 2, borderRadius: 4 },
+      ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { position: 'top' } }, scales: { x: { beginAtZero: true, ticks: { callback: v=>fmtNum(v) } } } }
   });
 
   document.getElementById('sd-tbody').innerHTML = rows.map(s => `
