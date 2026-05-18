@@ -2295,10 +2295,24 @@ function netSettle(s) {
   return s.optionType === '프리랜서' ? Math.round(s.settlementAmount * 0.967) : s.settlementAmount;
 }
 
+// KST 기준 YYYY-MM-DD (UTC ISO 사용 시 자정 전후 하루 차이 발생 방지)
+function todayKstDateStr() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date());
+}
+// Date 객체를 KST 로컬 날짜 문자열로 (cal-cell 만들 때 사용)
+function dateToKstStr(d) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year:'numeric', month:'2-digit', day:'2-digit' }).format(d);
+}
+// 캘린더 그리드는 KST 기준 연/월을 사용하므로, KST 자정에 해당하는 Date 객체 생성
+function kstDateFromYMD(y, m0, d) {
+  // 'YYYY-MM-DD' 형식 문자열로 input에 그대로 사용 가능
+  return `${y}-${String(m0+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+}
+
 function openAddSettlement() {
   document.getElementById('set-modal-title').textContent = '정산 추가';
   document.getElementById('set-id').value = '';
-  document.getElementById('set-f-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('set-f-date').value = todayKstDateStr();
   ['set-f-manager','set-f-hospital','set-f-note'].forEach(id => document.getElementById(id).value = '');
   ['set-f-qty','set-f-unitprice','set-f-amount','set-f-perunit','set-f-settle','set-f-margin']
     .forEach(id => document.getElementById(id).value = '');
@@ -2514,7 +2528,7 @@ function renderCalendar() {
   const lastDay  = new Date(_calYear, _calMonth+1, 0);
   const startWday = firstDay.getDay();
   const totalDays = lastDay.getDate();
-  const todayStr = new Date().toISOString().slice(0,10);
+  const todayStr = todayKstDateStr();
 
   const cells = [];
   // 요일 헤더
@@ -2559,7 +2573,7 @@ function renderCalendar() {
 }
 
 function makeCellHtml(date, evMap, otherMonth, todayStr) {
-  const ds = date.toISOString().slice(0,10);
+  const ds = dateToKstStr(date);
   const wday = date.getDay();
   const isToday = ds === todayStr;
   const events = evMap[ds] || [];
@@ -2573,7 +2587,7 @@ function makeCellHtml(date, evMap, otherMonth, todayStr) {
 }
 
 function openAddSchedule() {
-  const today = new Date().toISOString().slice(0,10);
+  const today = todayKstDateStr();
   openAddScheduleOn(today);
 }
 function openAddScheduleOn(dateStr) {
