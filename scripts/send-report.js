@@ -216,12 +216,23 @@ async function main() {
     }
   }
 
-  const [{ data: products, error: e1 }, { data: transactions, error: e2 }] = await Promise.all([
+  const [
+    { data: products, error: e1 },
+    { data: transactions, error: e2 },
+    { data: settlements, error: e3 },
+    { data: schedules, error: e4 },
+  ] = await Promise.all([
     sb.from('products').select('*').eq('user_id', SUPABASE_USER_ID).order('code'),
     sb.from('transactions').select('*').eq('user_id', SUPABASE_USER_ID).order('date', { ascending: false }),
+    sb.from('settlements').select('*').eq('user_id', SUPABASE_USER_ID).order('date', { ascending: false }),
+    sb.from('schedules').select('*').eq('user_id', SUPABASE_USER_ID).order('date', { ascending: true }),
   ]);
   if (e1) throw new Error('품목 조회 실패: ' + e1.message);
   if (e2) throw new Error('거래 조회 실패: ' + e2.message);
+  if (e3 && !/relation .* does not exist|PGRST205|schema cache/i.test(e3.message || '')) console.warn('정산 조회 경고:', e3.message);
+  if (e4 && !/relation .* does not exist|PGRST205|schema cache/i.test(e4.message || '')) console.warn('일정 조회 경고:', e4.message);
+  const settlementsArr = settlements || [];
+  const schedulesArr   = schedules   || [];
 
   const { stockMap, lastInMap, lastOutMap, stockValueMap } = calcStock(products, transactions);
   const today = todayKST();
@@ -295,16 +306,75 @@ async function main() {
     [12, 22, 14, 12, 10, 12, 8, 10, 10]);
   XLSX.utils.book_append_sheet(wb, ws4, '유효기간관리');
 
-  // ── 시트5: 사용안내 ──────────────────────────────────────────────────────
+  // ── 시트5: 담당자정산 (Settlements) ──────────────────────────────────────
+  const setHeaders = ['일자', '정산담당자', '병원명', '품목코드', '품목명', '구분', '수량', '병원납품가', '매출액', '개당정산', '정산금액', '정산마진', '세후정산액', '비고'];
+  const isNet  = s => /\[세후입력\]/.test(s.note || '');
+  const netAmt = s => isNet(s) ? Number(s.settlement_amount||0) : (s.option_type === '프리랜서' ? Math.round(Number(s.settlement_amount||0) * 0.967) : Number(s.settlement_amount||0));
+  const setRows = settlementsArr.map(s => {
+    const up = Number(s.unit_price||0), pu = Number(s.per_unit_amount||0);
+    const marginPct = up > 0 ? (pu / up * 100) : 0;
+    return [
+      s.date || '', s.manager || '', s.hospital_name || '', s.product_code || '', s.product_name || '',
+      s.option_type || '', Number(s.qty||0), up, Number(s.amount||0), pu,
+      Number(s.settlement_amount||0), Number(marginPct.toFixed(2)) + '%', netAmt(s),
+      (s.note || '').replace(/\[세후입력\]\s*/, '').trim()
+    ];
+  });
+  const ws5 = buildSheet('■ 담당자 정산 (Settlements)', setHeaders,
+    setRows.length > 0 ? setRows : [['', '', '', '', '', '', 0, 0, 0, 0, 0, '0%', 0, '(등록된 정산 없음)']],
+    [12, 12, 18, 12, 22, 8, 8, 12, 12, 10, 12, 10, 12, 18]);
+  XLSX.utils.book_append_sheet(wb, ws5, '담당자정산');
+
+  // ── 시트6: 정산 요약 (월별 × 담당자 × 병원 × 품목) ─────────────────────
+  const sumHeaders = ['정산월', '정산담당자', '병원명', '품목', '건수', '수량합', '매출액합', '정산금액합', '세후정산액합', '평균 정산마진'];
+  const groupMap = {};
+  settlementsArr.forEach(s => {
+    const month = (s.date||'').slice(0,7);
+    const key = [month, s.manager||'', s.hospital_name||'', s.product_name||''].join('||');
+    if (!groupMap[key]) groupMap[key] = { month, mgr: s.manager||'', hosp: s.hospital_name||'', prod: s.product_name||'', cnt:0, qty:0, amt:0, set:0, net:0, mSum:0 };
+    const g = groupMap[key];
+    const up = Number(s.unit_price||0), pu = Number(s.per_unit_amount||0);
+    g.cnt += 1;
+    g.qty += Number(s.qty||0);
+    g.amt += Number(s.amount||0);
+    g.set += Number(s.settlement_amount||0);
+    g.net += netAmt(s);
+    g.mSum += up > 0 ? (pu / up) : 0;
+  });
+  const sumRows = Object.values(groupMap)
+    .sort((a,b) => (b.month||'').localeCompare(a.month||'') || a.mgr.localeCompare(b.mgr) || a.hosp.localeCompare(b.hosp))
+    .map(g => [g.month, g.mgr, g.hosp, g.prod, g.cnt, g.qty, g.amt, g.set, g.net, (g.cnt > 0 ? (g.mSum / g.cnt * 100).toFixed(2) : '0') + '%']);
+  const ws6 = buildSheet('■ 정산 요약 (월별 × 담당자 × 병원 × 품목)', sumHeaders,
+    sumRows.length > 0 ? sumRows : [['', '', '', '', 0, 0, 0, 0, 0, '0%']],
+    [10, 12, 18, 22, 8, 10, 14, 14, 14, 12]);
+  XLSX.utils.book_append_sheet(wb, ws6, '정산요약');
+
+  // ── 시트7: 일정 캘린더 (Schedules) ───────────────────────────────────────
+  const calHeaders = ['일자', '담당자', '유형', '제목', '시작', '종료', '장소', '공유', '비고'];
+  const calRows = schedulesArr.map(s => [
+    s.date || '', s.person || '', s.schedule_type || '', s.title || '',
+    s.start_time || '', s.end_time || '', s.location || '',
+    s.shared === false ? '본인만' : '전체',
+    s.note || ''
+  ]);
+  const ws7 = buildSheet('■ 일정 캘린더 (Schedules)', calHeaders,
+    calRows.length > 0 ? calRows : [['', '', '', '(등록된 일정 없음)', '', '', '', '', '']],
+    [12, 12, 8, 28, 8, 8, 16, 8, 22]);
+  XLSX.utils.book_append_sheet(wb, ws7, '일정');
+
+  // ── 시트8: 사용안내 ──────────────────────────────────────────────────────
   const guideAoa = [
     ['📋 의료용 소모품 재고관리대장 사용안내'],
     [],
     ['■ 시트 구성'],
-    ['', '기준정보',    '품목 마스터 데이터. 신규 품목 추가 시 이 시트에 먼저 등록하세요.'],
-    ['', '입출고기록',  '모든 입고/사용/폐기/반품/조정 내역을 일자별로 기록합니다.'],
-    ['', '현재재고',    '품목별 현재 재고 수량, 재고금액, 안전재고 상태를 자동 집계합니다.'],
+    ['', '기준정보',     '품목 마스터 데이터. 신규 품목 추가 시 이 시트에 먼저 등록하세요.'],
+    ['', '입출고기록',   '모든 입고/사용/폐기/반품/조정 내역을 일자별로 기록합니다.'],
+    ['', '현재재고',     '품목별 현재 재고 수량, 재고금액, 안전재고 상태를 자동 집계합니다.'],
     ['', '유효기간관리', 'LOT별 유효기간과 잔여일수, 만료 상태를 관리합니다.'],
-    ['', '사용안내',    '본 가이드 시트입니다.'],
+    ['', '담당자정산',   '담당자별 매출 정산 내역 (월별·병원별·품목별 등록).'],
+    ['', '정산요약',     '월/담당자/병원/품목 단위로 정산 합계 자동 집계.'],
+    ['', '일정',         '담당자별 외근·회의 등 일정.'],
+    ['', '사용안내',     '본 가이드 시트입니다.'],
     [],
     ['■ 재고상태 표기'],
     ['', '⚠부족',  '현재재고 ≤ 안전재고 또는 재고없음'],
@@ -318,14 +388,19 @@ async function main() {
     ['', '◎주의', '잔여일수 ≤ 90일'],
     ['', '●정상', '잔여일수 > 90일'],
     [],
+    ['■ 정산 용어'],
+    ['', '정산 마진',   '개당 정산금액 ÷ 병원 납품가'],
+    ['', '세후 정산액', '프리랜서: 정산금액 × (1 − 3.3%) / 사업자: 그대로'],
+    ['', '[세후입력]',   '비고에 마커가 있으면 정산금액이 이미 세후 기준임 (중복 차감 방지)'],
+    [],
     ['■ 자동 발송'],
     ['', '매일 오전 7시 7분', `${process.env.RECIPIENT || ''} 외 등록된 이메일로 자동 발송됩니다.`],
   ];
-  const ws5 = XLSX.utils.aoa_to_sheet(guideAoa);
-  ws5['!cols'] = [{ wch: 4 }, { wch: 16 }, { wch: 60 }];
-  if (ws5['A1']) ws5['A1'].s = { font: { bold: true, sz: 14, color: { rgb: '1D4ED8' } } };
-  ['A3','A10','A16','A22'].forEach(addr => { if (ws5[addr]) ws5[addr].s = { font: { bold: true, color: { rgb: '1D4ED8' } } }; });
-  XLSX.utils.book_append_sheet(wb, ws5, '사용안내');
+  const ws8 = XLSX.utils.aoa_to_sheet(guideAoa);
+  ws8['!cols'] = [{ wch: 4 }, { wch: 16 }, { wch: 60 }];
+  if (ws8['A1']) ws8['A1'].s = { font: { bold: true, sz: 14, color: { rgb: '1D4ED8' } } };
+  ['A3','A13','A19','A25','A30'].forEach(addr => { if (ws8[addr]) ws8[addr].s = { font: { bold: true, color: { rgb: '1D4ED8' } } }; });
+  XLSX.utils.book_append_sheet(wb, ws8, '사용안내');
 
   const xlsxBuf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 
@@ -345,6 +420,11 @@ async function main() {
     return (p.safety_stock || 0) > 0 && q <= p.safety_stock;
   }).length;
   const todayTxCount = transactions.filter(t => t.date === today).length;
+  const monthKey = todayKey.slice(0,7);
+  const monthSettlements = settlementsArr.filter(s => (s.date||'').startsWith(monthKey));
+  const monthSetAmt = monthSettlements.reduce((a,s) => a + Number(s.settlement_amount||0), 0);
+  const monthSetNet = monthSettlements.reduce((a,s) => a + netAmt(s), 0);
+  const upcomingSchedules = schedulesArr.filter(s => s.date >= todayKey).length;
 
   await transporter.sendMail({
     from: `"의약품 재고관리" <${SMTP_USER}>`,
@@ -358,9 +438,13 @@ async function main() {
           <tr><td style="padding:10px 14px; font-weight:600; border-top:1px solid #e5e7eb;">재고 부족</td><td style="padding:10px 14px; color:#dc2626; border-top:1px solid #e5e7eb;">${lowStockCount}개</td></tr>
           <tr style="background:#dbeafe;"><td style="padding:10px 14px; font-weight:600;">금일 입출고</td><td style="padding:10px 14px;">${todayTxCount}건</td></tr>
           <tr><td style="padding:10px 14px; font-weight:600; border-top:1px solid #e5e7eb;">전체 거래기록</td><td style="padding:10px 14px; border-top:1px solid #e5e7eb;">${transactions.length}건</td></tr>
+          <tr style="background:#dbeafe;"><td style="padding:10px 14px; font-weight:600;">이달 정산 건수</td><td style="padding:10px 14px;">${monthSettlements.length}건</td></tr>
+          <tr><td style="padding:10px 14px; font-weight:600; border-top:1px solid #e5e7eb;">이달 정산금액</td><td style="padding:10px 14px; border-top:1px solid #e5e7eb;">${monthSetAmt.toLocaleString('ko-KR')}원</td></tr>
+          <tr style="background:#dbeafe;"><td style="padding:10px 14px; font-weight:600;">이달 세후 정산액</td><td style="padding:10px 14px;">${monthSetNet.toLocaleString('ko-KR')}원</td></tr>
+          <tr><td style="padding:10px 14px; font-weight:600; border-top:1px solid #e5e7eb;">예정 일정</td><td style="padding:10px 14px; border-top:1px solid #e5e7eb;">${upcomingSchedules}건</td></tr>
         </table>
         <p style="margin-top:18px; color:#6b7280; font-size:13px; line-height:1.6;">
-          첨부된 엑셀에는 <b>기준정보 · 입출고기록 · 현재재고 · 유효기간관리 · 사용안내</b> 5개 시트가 포함되어 있습니다.<br>
+          첨부된 엑셀에는 <b>기준정보 · 입출고기록 · 현재재고 · 유효기간관리 · 담당자정산 · 정산요약 · 일정 · 사용안내</b> 8개 시트가 포함되어 있습니다.<br>
           웹 시스템: <a href="https://boldjin.github.io/pharma-inventory">https://boldjin.github.io/pharma-inventory</a>
         </p>
       </div>
