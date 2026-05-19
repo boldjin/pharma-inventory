@@ -2799,9 +2799,13 @@ function renderSettleDash() {
   const byMgr = {};
   rows.forEach(r => { byMgr[r.manager] = (byMgr[r.manager]||0) + r.settlementAmount; });
   destroyChart('sd-mgr');
+  const mgrLabels = Object.keys(byMgr);
+  // 담당자별 고유 색상 (HOSPITAL_COLORS 팔레트로 대비 강화)
+  const mgrBorders = mgrLabels.map((_, i) => HOSPITAL_COLORS[i % HOSPITAL_COLORS.length]);
+  const mgrFills   = mgrBorders.map(c => c + '8C'); // alpha ~55% (hex 8C)
   charts['sd-mgr'] = new Chart(document.getElementById('chart-sd-mgr').getContext('2d'), {
     type: 'bar',
-    data: { labels: Object.keys(byMgr), datasets: [{ label: '정산금액', data: Object.values(byMgr), backgroundColor: 'rgba(0,117,74,0.55)', borderColor: '#00754A', borderWidth: 2, borderRadius: 4 }] },
+    data: { labels: mgrLabels, datasets: [{ label: '정산금액', data: Object.values(byMgr), backgroundColor: mgrFills, borderColor: mgrBorders, borderWidth: 2, borderRadius: 4 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v=>fmtNum(v) } } } }
   });
 
