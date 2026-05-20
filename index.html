@@ -361,6 +361,8 @@ select.form-control { cursor: pointer; }
 .cal-cell:hover { background: var(--bg-soft); }
 .cal-cell.other-month { opacity: 0.35; }
 .cal-cell.today { border: 2px solid var(--sb-green-accent); }
+.cal-cell.holiday { background: rgba(200, 32, 20, 0.06); }
+[data-theme="dark"] .cal-cell.holiday { background: rgba(255, 122, 111, 0.10); }
 .cal-date { font-size: 12px; font-weight: 600; color: var(--text-primary); }
 .cal-date.sun { color: #c82014; }
 .cal-date.sat { color: #1e6cb5; }
@@ -2401,6 +2403,37 @@ function kstDateFromYMD(y, m0, d) {
   return `${y}-${String(m0+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 }
 
+// ── 한국 공휴일 (2026~2030, 대체공휴일 제외) ───────────────────────────────
+// 음력 기반(설/부처님/추석)은 양력 변환값. 대체공휴일은 매년 정부 고시 후 별도 추가 필요.
+const KR_HOLIDAYS_MAP = {
+  // 2026
+  '2026-01-01': '신정', '2026-02-16': '설날 연휴', '2026-02-17': '설날', '2026-02-18': '설날 연휴',
+  '2026-03-01': '삼일절', '2026-05-05': '어린이날', '2026-05-24': '부처님오신날', '2026-06-06': '현충일',
+  '2026-08-15': '광복절', '2026-09-24': '추석 연휴', '2026-09-25': '추석', '2026-09-26': '추석 연휴',
+  '2026-10-03': '개천절', '2026-10-09': '한글날', '2026-12-25': '크리스마스',
+  // 2027
+  '2027-01-01': '신정', '2027-02-06': '설날 연휴', '2027-02-07': '설날', '2027-02-08': '설날 연휴',
+  '2027-03-01': '삼일절', '2027-05-05': '어린이날', '2027-05-13': '부처님오신날', '2027-06-06': '현충일',
+  '2027-08-15': '광복절', '2027-09-14': '추석 연휴', '2027-09-15': '추석', '2027-09-16': '추석 연휴',
+  '2027-10-03': '개천절', '2027-10-09': '한글날', '2027-12-25': '크리스마스',
+  // 2028
+  '2028-01-01': '신정', '2028-01-25': '설날 연휴', '2028-01-26': '설날', '2028-01-27': '설날 연휴',
+  '2028-03-01': '삼일절', '2028-05-02': '부처님오신날', '2028-05-05': '어린이날', '2028-06-06': '현충일',
+  '2028-08-15': '광복절', '2028-10-02': '추석 연휴', '2028-10-03': '개천절·추석', '2028-10-04': '추석 연휴',
+  '2028-10-09': '한글날', '2028-12-25': '크리스마스',
+  // 2029
+  '2029-01-01': '신정', '2029-02-12': '설날 연휴', '2029-02-13': '설날', '2029-02-14': '설날 연휴',
+  '2029-03-01': '삼일절', '2029-05-05': '어린이날', '2029-05-20': '부처님오신날', '2029-06-06': '현충일',
+  '2029-08-15': '광복절', '2029-09-21': '추석 연휴', '2029-09-22': '추석', '2029-09-23': '추석 연휴',
+  '2029-10-03': '개천절', '2029-10-09': '한글날', '2029-12-25': '크리스마스',
+  // 2030
+  '2030-01-01': '신정', '2030-02-02': '설날 연휴', '2030-02-03': '설날', '2030-02-04': '설날 연휴',
+  '2030-03-01': '삼일절', '2030-05-05': '어린이날', '2030-05-09': '부처님오신날', '2030-06-06': '현충일',
+  '2030-08-15': '광복절', '2030-09-11': '추석 연휴', '2030-09-12': '추석', '2030-09-13': '추석 연휴',
+  '2030-10-03': '개천절', '2030-10-09': '한글날', '2030-12-25': '크리스마스',
+};
+function holidayName(dateStr) { return KR_HOLIDAYS_MAP[dateStr] || null; }
+
 // 매출 거래(transactions where type='매출')에서 월별로 필터된 데이터 반환
 function salesInMonth(yyyymm) {
   return _transactions.filter(t => t.type === '매출' && (t.date||'').startsWith(yyyymm));
@@ -2975,12 +3008,19 @@ function makeCellHtml(date, evMap, otherMonth, todayStr) {
   const ds = dateToKstStr(date);
   const wday = date.getDay();
   const isToday = ds === todayStr;
+  const holiday = holidayName(ds);
   const events = evMap[ds] || [];
   const eventHtml = events.slice(0, 3).map(e =>
     `<div class="cal-event" style="background:${personColor(e.person)}" title="${e.person} - ${e.title}" onclick="event.stopPropagation();openEditSchedule(${e.id})">${e.person ? e.person + '·' : ''}${e.title}</div>`
   ).join('') + (events.length > 3 ? `<div style="font-size:10px;color:var(--text-muted)">+${events.length-3}건</div>` : '');
-  return `<div class="cal-cell ${otherMonth?'other-month':''} ${isToday?'today':''}" onclick="openAddScheduleOn('${ds}')">
-    <div class="cal-date ${wday===0?'sun':wday===6?'sat':''}">${date.getDate()}</div>
+  // 공휴일이면 날짜 빨강 + 공휴일명 표시 (일요일과 동일 톤)
+  const dateClass = (holiday || wday===0) ? 'sun' : (wday===6 ? 'sat' : '');
+  const holidayHtml = holiday
+    ? `<div style="font-size:10px; color:#c82014; font-weight:600; letter-spacing:-0.01em; line-height:1.2;" title="${holiday}">${holiday}</div>`
+    : '';
+  return `<div class="cal-cell ${otherMonth?'other-month':''} ${isToday?'today':''} ${holiday?'holiday':''}" onclick="openAddScheduleOn('${ds}')">
+    <div class="cal-date ${dateClass}">${date.getDate()}</div>
+    ${holidayHtml}
     ${eventHtml}
   </div>`;
 }
