@@ -202,17 +202,22 @@ async function main() {
   const todayKey = todayKSTDate();
 
   // 중복 발송 방지 — daily_email_log 테이블 조회
+  // 테이블이 없거나 조회 실패 시 경고만 출력하고 발송 진행 (cron이 1개라 중복 위험 낮음)
+  let dedupActive = false;
   if (FORCE_SEND !== '1') {
     const { data: existing, error: logErr } = await sb.from('daily_email_log').select('date').eq('date', todayKey).maybeSingle();
-    if (logErr && /PGRST205|does not exist|schema cache/i.test(logErr.message || '')) {
-      throw new Error('daily_email_log 테이블이 없습니다. Supabase SQL Editor에서 supabase-setup.sql의 daily_email_log 생성 SQL을 실행해주세요. 중복 방지 보장을 위해 발송을 중단합니다.');
-    }
     if (logErr) {
-      console.warn('daily_email_log 조회 경고 (발송은 진행):', logErr.message);
-    }
-    if (existing) {
-      console.log(`⏭️  ${todayKey} 이미 발송됨 — 스킵 (중복 방지)`);
-      return;
+      if (/PGRST205|does not exist|schema cache/i.test(logErr.message || '')) {
+        console.warn('⚠ daily_email_log 테이블 없음 — 중복 방지 미작동. Supabase에서 생성 권장.');
+      } else {
+        console.warn('daily_email_log 조회 경고 (발송은 진행):', logErr.message);
+      }
+    } else {
+      dedupActive = true;
+      if (existing) {
+        console.log(`⏭️  ${todayKey} 이미 발송됨 — 스킵 (중복 방지)`);
+        return;
+      }
     }
   }
 
