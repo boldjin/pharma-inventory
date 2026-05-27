@@ -2566,13 +2566,16 @@ function onSetHospChange() {
   const code = prodV.split('|')[0];
   const sales = salesInMonth(month).filter(s => s.productCode === code && s.partner === hosp);
   if (sales.length === 0) return;
-  // 수량 합산, 단가는 가장 최근 매출 단가 그대로, 일자만 자동 (담당자는 매출과 별개, lock에서 처리)
+  // 수량 합산, 단가는 가장 최근 매출 단가 그대로
+  // 정산 일자는 "월별 정산" 의미상 선택한 달의 말일로 고정 (혼동 방지)
   const totalQty = sales.reduce((a,s)=>a+s.qty, 0);
   const latest   = [...sales].sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];
   const unitPrice = latest?.unitPrice || 0;
+  const [yy, mm] = month.split('-').map(Number);
+  const lastDay = new Date(yy, mm, 0).getDate();
   setNumI('set-f-qty', totalQty);
   setNumI('set-f-unitprice', unitPrice);
-  document.getElementById('set-f-date').value    = sales.map(s=>s.date).sort().pop() || (month + '-01');
+  document.getElementById('set-f-date').value    = `${month}-${String(lastDay).padStart(2,'0')}`;
   document.getElementById('set-f-hospital').value = hosp;
 
   // 개당정산/정산마진만 (품목 × 병원) 기준 잠금 (병원납품가는 매출에서 자동)
@@ -2738,12 +2741,12 @@ async function saveSettlement() {
   const qty = getNumI('set-f-qty');
   const manager = document.getElementById('set-f-manager').value.trim();
   if (!month || !prodVal || !hospital || qty <= 0 || !manager) { alert('필수 항목(월/품목/병원/수량/정산담당자)을 입력하세요'); return; }
-  // 일자는 매출에서 추출된 값 우선, 없으면 월의 마지막 매출일, 그것도 없으면 1일
+  // 정산 일자: 선택한 달의 말일 (월별 정산 의미)
   let date = document.getElementById('set-f-date').value;
   if (!date) {
-    const code = prodVal.split('|')[0];
-    const sales = salesInMonth(month).filter(s => s.productCode === code && s.partner === hospital);
-    date = sales.map(s=>s.date).sort().pop() || (month + '-01');
+    const [yy, mm] = month.split('-').map(Number);
+    const lastDay = new Date(yy, mm, 0).getDate();
+    date = `${month}-${String(lastDay).padStart(2,'0')}`;
   }
   const [code, name] = prodVal.split('|');
   const up  = getNumI('set-f-unitprice');
