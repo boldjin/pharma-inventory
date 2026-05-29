@@ -979,8 +979,9 @@ select.form-control { cursor: pointer; }
     </div>
     <input type="hidden" id="set-id">
     <div style="background:var(--bg-soft); padding:12px 14px; border-radius:8px; font-size:12px; color:var(--text-secondary); margin-bottom:14px; letter-spacing:-0.01em; line-height:1.5;">
-      💡 <strong>월/품목/병원/수량</strong> 4가지만 선택하면 매출현황에서 자동으로 단가·금액·정산 마진을 가져옵니다.<br>
-      💡 <strong>개당 정산금액</strong>은 같은 품목의 이전 정산 기록을 자동 적용 (없으면 직접 입력).
+      💡 <strong>월·품목·병원</strong> 선택 → <strong>매출 거래 1건을 직접 선택</strong>해 1:1로 정산을 등록합니다.<br>
+      💡 이미 정산된 매출은 (정산 등록됨)으로 회색 표시됩니다.<br>
+      💡 <strong>개당 정산금액·정산담당자</strong>는 같은 (품목·병원) 조합의 이전 정산을 자동 적용 (없으면 직접 입력).
     </div>
     <div class="form-grid">
       <!-- 필수 4개 -->
@@ -995,6 +996,13 @@ select.form-control { cursor: pointer; }
       <div class="form-group">
         <label class="form-label">병원 *</label>
         <select id="set-f-hospital-sel" class="form-control" onchange="onSetHospChange()"></select>
+      </div>
+      <div class="form-group full">
+        <label class="form-label">매출 거래 선택 *</label>
+        <select id="set-f-txsel" class="form-control" onchange="onSetTxChange()">
+          <option value="">병원 선택 후 자동 표시</option>
+        </select>
+        <div id="set-f-tx-hint" style="display:none; font-size:11px; margin-top:4px; color:var(--text-secondary); letter-spacing:-0.01em;"></div>
       </div>
       <div class="form-group">
         <label class="form-label">납품수량 *</label>
@@ -1245,6 +1253,7 @@ function settlementToDb(s) {
     margin_rate: Number(s.marginRate || 0), manager: s.manager || '',
     settlement_amount: Number(s.settlementAmount || 0),
     option_type: s.optionType || '프리랜서', note: s.note || '',
+    transaction_id: s.transactionId || null,
     user_id: _userId,
   };
 }
@@ -1256,6 +1265,7 @@ function settlementFromDb(r) {
     perUnitAmount: Number(r.per_unit_amount), marginRate: Number(r.margin_rate),
     manager: r.manager, settlementAmount: Number(r.settlement_amount),
     optionType: r.option_type, note: r.note,
+    transactionId: r.transaction_id || null,
   };
 }
 function scheduleToDb(s) {
@@ -2491,19 +2501,20 @@ function bindSetModalEvents() {
 function openAddSettlement() {
   document.getElementById('set-modal-title').textContent = '정산 추가';
   document.getElementById('set-id').value = '';
-  // 이번 달로 디폴트
   document.getElementById('set-f-month').value = todayKstDateStr().slice(0,7);
   ['set-f-manager','set-f-hospital','set-f-note','set-f-qty','set-f-unitprice','set-f-amount','set-f-perunit','set-f-settle','set-f-margin','set-f-date']
     .forEach(id => document.getElementById(id).value = '');
   document.getElementById('set-f-product').innerHTML = '<option value="">월 선택 후 자동 표시</option>';
   document.getElementById('set-f-hospital-sel').innerHTML = '<option value="">품목 선택 후 자동 표시</option>';
+  document.getElementById('set-f-txsel').innerHTML = '<option value="">병원 선택 후 자동 표시</option>';
+  document.getElementById('set-f-tx-hint').style.display = 'none';
   document.getElementById('set-f-option').value = '프리랜서';
   document.getElementById('set-f-taxmode').value = 'gross';
   document.getElementById('set-f-validate').style.display = 'none';
   document.getElementById('set-del-btn').style.display = 'none';
   bindSetModalEvents();
   document.getElementById('modal-settlement').classList.add('active');
-  onSetMonthChange();  // 디폴트 월에 대한 품목 옵션 자동 채움
+  onSetMonthChange();
 }
 
 function onSetMonthChange() {
@@ -2562,24 +2573,54 @@ function onSetHospChange() {
   const month  = document.getElementById('set-f-month').value;
   const prodV  = document.getElementById('set-f-product').value;
   const hosp   = document.getElementById('set-f-hospital-sel').value;
-  if (!month || !prodV || !hosp) return;
+  const txSel  = document.getElementById('set-f-txsel');
+  const hint   = document.getElementById('set-f-tx-hint');
+  if (!month || !prodV || !hosp) {
+    txSel.innerHTML = '<option value="">병원 선택 후 자동 표시</option>';
+    if (hint) hint.style.display = 'none';
+    return;
+  }
   const code = prodV.split('|')[0];
-  const sales = salesInMonth(month).filter(s => s.productCode === code && s.partner === hosp);
-  if (sales.length === 0) return;
-  // 수량 합산, 단가는 가장 최근 매출 단가 그대로
-  // 정산 일자는 "월별 정산" 의미상 선택한 달의 말일로 고정 (혼동 방지)
-  const totalQty = sales.reduce((a,s)=>a+s.qty, 0);
-  const latest   = [...sales].sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];
-  const unitPrice = latest?.unitPrice || 0;
-  const [yy, mm] = month.split('-').map(Number);
-  const lastDay = new Date(yy, mm, 0).getDate();
-  setNumI('set-f-qty', totalQty);
-  setNumI('set-f-unitprice', unitPrice);
-  document.getElementById('set-f-date').value    = `${month}-${String(lastDay).padStart(2,'0')}`;
+  const editingId = +document.getElementById('set-id').value || null;
+  // 해당 (월/품목/병원)의 매출 거래 — 일자 오름차순
+  const sales = salesInMonth(month)
+    .filter(s => s.productCode === code && s.partner === hosp)
+    .sort((a,b) => (a.date||'').localeCompare(b.date||''));
+  // 이미 정산된 매출 ID 목록 (편집 중인 자신의 매출은 제외)
+  const usedTxIds = new Set(_settlements.filter(s => s.transactionId && s.id !== editingId).map(s => s.transactionId));
+  const opts = sales.map(s => {
+    const used = usedTxIds.has(s.id);
+    return `<option value="${s.id}" ${used?'disabled':''}>${s.date} · ${fmtNum(s.qty)}개 · ${fmtNum(s.unitPrice)}원 · ${used?'(정산 등록됨)':'미정산'}</option>`;
+  });
+  if (sales.length === 0) {
+    txSel.innerHTML = '<option value="">해당 조합 매출 없음</option>';
+  } else {
+    txSel.innerHTML = '<option value="">선택</option>' + opts.join('');
+  }
   document.getElementById('set-f-hospital').value = hosp;
+  if (hint) {
+    const remaining = sales.filter(s => !usedTxIds.has(s.id)).length;
+    hint.textContent = `매출 ${sales.length}건 / 미정산 ${remaining}건`;
+    hint.style.display = 'block';
+  }
+  // 자동 fill은 매출 거래 선택 후
+}
 
-  // 개당정산/정산마진만 (품목 × 병원) 기준 잠금 (병원납품가는 매출에서 자동)
-  applyLockedFieldsForCombo(code, hosp);
+// 매출 거래 선택 시 → 그 거래의 일자/수량/단가/품목명을 정산에 복사
+function onSetTxChange() {
+  const txId = +document.getElementById('set-f-txsel').value || 0;
+  if (!txId) return;
+  const tx = _transactions.find(t => t.id === txId);
+  if (!tx) return;
+  setNumI('set-f-qty', tx.qty);
+  setNumI('set-f-unitprice', tx.unitPrice);
+  document.getElementById('set-f-date').value = tx.date;  // 매출 일자 그대로
+  // 품목명 동기화 (드롭다운의 값과 매출의 품목명이 다를 경우 매출 기준)
+  const prodSel = document.getElementById('set-f-product');
+  const targetVal = `${tx.productCode}|${tx.productName}`;
+  if ([...prodSel.options].some(o => o.value === targetVal)) prodSel.value = targetVal;
+  // 개당정산/정산마진은 (품목 × 병원) 기준 잠금 로직 적용
+  applyLockedFieldsForCombo(tx.productCode, tx.partner);
   calcSetAmounts();
 }
 
@@ -2665,8 +2706,11 @@ function openEditSettlement(id) {
   document.getElementById('set-del-btn').style.display = 'inline-flex';
   bindSetModalEvents();
   document.getElementById('modal-settlement').classList.add('active');
-  // 편집 시에도 (품목+병원) 조합 lock 상태 적용 (자기 자신은 제외)
   setTimeout(() => {
+    // 매출 거래 드롭다운 재생성 후 현재 매핑된 매출 선택
+    onSetHospChange();
+    const txSel = document.getElementById('set-f-txsel');
+    if (s.transactionId && txSel) txSel.value = s.transactionId;
     applyLockedFieldsForCombo(s.productCode, s.hospitalName);
     calcSetAmounts();
   }, 0);
@@ -2740,13 +2784,13 @@ async function saveSettlement() {
   const hospital = document.getElementById('set-f-hospital-sel').value || document.getElementById('set-f-hospital').value;
   const qty = getNumI('set-f-qty');
   const manager = document.getElementById('set-f-manager').value.trim();
-  if (!month || !prodVal || !hospital || qty <= 0 || !manager) { alert('필수 항목(월/품목/병원/수량/정산담당자)을 입력하세요'); return; }
-  // 정산 일자: 선택한 달의 말일 (월별 정산 의미)
+  const txId = +document.getElementById('set-f-txsel').value || null;
+  if (!month || !prodVal || !hospital || qty <= 0 || !manager || !txId) { alert('필수 항목(월/품목/병원/매출거래/수량/정산담당자)을 입력하세요'); return; }
+  // 매출 거래 일자 그대로 사용
   let date = document.getElementById('set-f-date').value;
   if (!date) {
-    const [yy, mm] = month.split('-').map(Number);
-    const lastDay = new Date(yy, mm, 0).getDate();
-    date = `${month}-${String(lastDay).padStart(2,'0')}`;
+    const tx = _transactions.find(t => t.id === txId);
+    date = tx?.date || `${month}-01`;
   }
   const [code, name] = prodVal.split('|');
   const up  = getNumI('set-f-unitprice');
@@ -2772,6 +2816,7 @@ async function saveSettlement() {
     settlementAmount: settle,
     marginRate: up > 0 ? (pu / up) : 0, manager,
     optionType, note: finalNote,
+    transactionId: txId,
   };
   try {
     if (id) await dbUpdateSettlement(s);
