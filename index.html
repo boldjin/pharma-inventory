@@ -2407,12 +2407,6 @@ function todayKstDateStr() {
 function dateToKstStr(d) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year:'numeric', month:'2-digit', day:'2-digit' }).format(d);
 }
-// 캘린더 그리드는 KST 기준 연/월을 사용하므로, KST 자정에 해당하는 Date 객체 생성
-function kstDateFromYMD(y, m0, d) {
-  // 'YYYY-MM-DD' 형식 문자열로 input에 그대로 사용 가능
-  return `${y}-${String(m0+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-}
-
 // ── 한국 공휴일 (2026~2030, 대체공휴일 제외) ───────────────────────────────
 // 음력 기반(설/부처님/추석)은 양력 변환값. 대체공휴일은 매년 정부 고시 후 별도 추가 필요.
 const KR_HOLIDAYS_MAP = {
@@ -2452,23 +2446,6 @@ function holidayName(dateStr) { return KR_HOLIDAYS_MAP[dateStr] || null; }
 function salesInMonth(yyyymm) {
   return _transactions.filter(t => t.type === '매출' && (t.date||'').startsWith(yyyymm));
 }
-// 같은 품목의 가장 최근 정산에서 개당 정산금액을 가져옴 (없으면 0)
-function lastPerUnitForProduct(code) {
-  const recent = _settlements
-    .filter(s => s.productCode === code && s.perUnitAmount > 0)
-    .sort((a,b) => (b.date||'').localeCompare(a.date||''));
-  return recent[0]?.perUnitAmount || 0;
-}
-
-// (품목 × 병원) 조합의 가장 최근 정산 레코드 — 개당정산/마진 lock-in용
-function findPrevByProductHospital(code, hospital) {
-  if (!code || !hospital) return null;
-  const matches = _settlements
-    .filter(s => s.productCode === code && s.hospitalName === hospital && s.perUnitAmount > 0)
-    .sort((a,b) => (b.date||'').localeCompare(a.date||''));
-  return matches[0] || null;
-}
-
 // 편집 중인 settlement id를 prev 매칭에서 제외 (자기 자신 매칭 방지)
 function findPrevByProductHospitalExcl(code, hospital, excludeId) {
   if (!code || !hospital) return null;

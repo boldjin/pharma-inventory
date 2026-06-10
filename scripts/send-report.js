@@ -472,8 +472,11 @@ async function main() {
       sent_at: new Date().toISOString(),
       recipients: recipients.join(','),
     }, { onConflict: 'date' });
+    // 90일 이상 된 로그 자동 정리 (무한 누적 방지)
+    const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    await sb.from('daily_email_log').delete().lt('date', cutoff);
   } catch (e) {
-    console.warn('daily_email_log 기록 실패 (메일은 발송됨):', e?.message || e);
+    console.warn('daily_email_log 처리 경고 (메일은 발송됨):', e?.message || e);
   }
 }
 

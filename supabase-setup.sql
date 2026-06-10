@@ -74,9 +74,11 @@ create table if not exists public.settlements (
   settlement_amount numeric not null default 0,        -- 담당자 정산금액
   option_type       text default '프리랜서',           -- 프리랜서 / 사업자
   note              text default '',
+  transaction_id    bigint references public.transactions(id) on delete set null,  -- 매출 거래 FK (1:1)
   user_id           uuid references auth.users not null,
   created_at        timestamptz default now()
 );
+create index if not exists idx_settlements_transaction on public.settlements(transaction_id);
 alter table public.settlements enable row level security;
 create policy "owner_settlements" on public.settlements
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
